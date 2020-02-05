@@ -1,0 +1,33 @@
+{
+  "sni": false,
+  "tcp_no_delay": false,
+  "mqtt": {
+    "mqtt_max_message_expiry_interval": 20,
+    "mqtt_max_session_expiry_interval": 600
+  },
+  "tcp": {
+    "host": "0.0.0.0",
+    "port": 11883,
+    "ssl": false,
+    "key_cert": [
+      {
+        "key_path": "",
+        "cert_path": ""
+      }
+    ]
+  },
+  "ws": {
+    "enable": false,
+    "host": "0.0.0.0",
+    "port": 18183,
+    "path": "/mqtt",
+    "ssl": false
+  },
+  "log-level": "info",
+
+
+  "persistence":"file",
+  "save_enable": false,
+  "save_interval": 600,
+  "save_dir": "D:\\JavaProject\\mqttbroker\\store"
+}
