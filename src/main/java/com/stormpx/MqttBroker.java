@@ -1,6 +1,8 @@
 package com.stormpx;
 
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
 import com.stormpx.kit.UnSafeJsonObject;
@@ -47,8 +49,7 @@ public class MqttBroker {
                 .setScanPeriod(60*1000);
 
         vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
-        int availableProcessors = Runtime.getRuntime().availableProcessors();
-        logger.info("available processors :{}",availableProcessors);
+
         ConfigRetriever retriever = ConfigRetriever.create(vertx,options);
         Promise<Void> promise=Promise.promise();
         retriever.getConfig(ar->{
@@ -56,7 +57,11 @@ public class MqttBroker {
                 if (ar.succeeded()){
                     JsonObject config = ar.result();
                     setLogLevel(config);
-                    DeploymentOptions mqtt = new DeploymentOptions().setInstances(availableProcessors/2==0?1:availableProcessors/2).setConfig(config);
+                    int availableProcessors = Runtime.getRuntime().availableProcessors();
+                    logger.info("available processors :{}",availableProcessors);
+                    Integer verticleInstance = config.getInteger("verticle_instance", availableProcessors);
+                    logger.info("verticle instance :{}",verticleInstance);
+                    DeploymentOptions mqtt = new DeploymentOptions().setInstances(verticleInstance).setConfig(config);
 
                     retriever.listen(configChange->{
                         logger.info("detected config change");
@@ -82,19 +87,23 @@ public class MqttBroker {
     }
 
     private static void setLogLevel(JsonObject jsonObject){
-        String info = jsonObject.getString("log-level", "info");
+        String level = jsonObject.getString("log_level", "info");
         ch.qos.logback.classic.Logger logger =
                 (ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        logger.setLevel(Level.toLevel(info));
+        logger.info("log level:{}",Level.toLevel(level));
+        logger.setLevel(Level.toLevel(level));
         String log_dir = jsonObject.getString("log_dir");
 
         if (log_dir!=null){
             String dir = Paths.get(log_dir).normalize().toString();
-            RollingFileAppender appender = (RollingFileAppender) logger.getAppender("");
+            logger.info("log dir:{}",dir);
+            RollingFileAppender appender = (RollingFileAppender) logger.getAppender("FILE");
             TimeBasedRollingPolicy rollingPolicy = (TimeBasedRollingPolicy) appender.getRollingPolicy();
-            rollingPolicy.setFileNamePattern(dir+"/%d.log");
+            rollingPolicy.setFileNamePattern(dir+"/%d{yyyy-MM-dd}.log");
+            rollingPolicy.start();
+        }else{
+            logger.detachAppender("FILE");
         }
-
     }
 
 }

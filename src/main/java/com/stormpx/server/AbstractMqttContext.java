@@ -3,7 +3,7 @@ package com.stormpx.server;
 import com.stormpx.ex.PacketTooLagerException;
 import com.stormpx.ex.ProtocolErrorException;
 import com.stormpx.kit.StringPair;
-import com.stormpx.broker.*;
+import com.stormpx.message.*;
 import com.stormpx.mqtt.*;
 import com.stormpx.mqtt.packet.*;
 import io.netty.buffer.ByteBuf;
@@ -252,6 +252,9 @@ public abstract class AbstractMqttContext implements MqttContext {
                 disconnectHandler.handle(disconnectMessage);
             }
         }else{
+           /* if (packet.getReasonCode()==ReasonCode.DISCONNECT_WITH_WILL_MESSAGE)
+                mqttSessionOption.setSessionExpiryInterval(0);*/
+
             logger.debug("client:{} receive disconnect reason code:{}",mqttSession.clientIdentifier(),packet.getReasonCode().byteValue());
         }
         close();
@@ -302,6 +305,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     public long sessionExpiryInterval() {
         return mqttSessionOption.getSessionExpiryInterval();
     }
+
 
     @Override
     public int keepAlive() {
@@ -365,8 +369,10 @@ public abstract class AbstractMqttContext implements MqttContext {
 
     @Override
     public MqttContext setMaxQos(MqttQoS qos) {
-        if (qos.value()<2)
-            addProperties(new MqttProperties(MqttProperty.MAXIMUM_QOS,(byte)qos.value()));
+        if (qos.value()<2) {
+            addProperties(new MqttProperties(MqttProperty.MAXIMUM_QOS, (byte) qos.value()));
+            mqttSessionOption.setMaxQos(qos);
+        }
         return this;
     }
 
@@ -648,7 +654,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     private void addProperties(MqttProperties properties){
         if (version==MqttVersion.MQTT_3_1_1)
             return;
-        if (properties.getProperty().useful(ControlPacketType.CONNACK))
+        if (!properties.getProperty().useful(ControlPacketType.CONNACK))
             throw new RuntimeException();
         if (ackProperties==null)
             ackProperties=new ArrayList<>();

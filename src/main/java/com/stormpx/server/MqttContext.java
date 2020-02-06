@@ -3,7 +3,7 @@ package com.stormpx.server;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttVersion;
 import com.stormpx.mqtt.ReasonCode;
-import com.stormpx.broker.*;
+import com.stormpx.message.*;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;

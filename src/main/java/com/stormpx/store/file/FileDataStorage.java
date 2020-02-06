@@ -52,6 +52,12 @@ public class FileDataStorage implements DataStorage {
     }
 
     @Override
+    public Future<Void> close() {
+        atomicBoolean.compareAndSet(true,false);
+        return Future.succeededFuture();
+    }
+
+    @Override
     public void clearSession(String clientId) {
         vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),CLEAR_SESSION);
     }

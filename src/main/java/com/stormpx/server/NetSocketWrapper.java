@@ -112,9 +112,7 @@ public class NetSocketWrapper implements MqttSocket {
 
     @Override
     public MqttSocket writePacket(MqttPacket packet) {
-//        if (!closed)
-            netSocketInternal.writeMessage(packet);
-        return this;
+        return writePacket(packet,null);
     }
 
     @Override

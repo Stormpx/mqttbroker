@@ -2,10 +2,10 @@ package com.stormpx;
 
 import com.stormpx.auth.AuthResult;
 import com.stormpx.auth.Authenticator;
-import com.stormpx.broker.MqttBrokerMessage;
-import com.stormpx.broker.MqttPublishMessage;
-import com.stormpx.broker.MqttSubscribeMessage;
-import com.stormpx.broker.MqttWill;
+import com.stormpx.message.MqttBrokerMessage;
+import com.stormpx.message.MqttPublishMessage;
+import com.stormpx.message.MqttSubscribeMessage;
+import com.stormpx.message.MqttWill;
 import com.stormpx.ex.SharedSubscriptionsNotSupportedException;
 import com.stormpx.ex.SubscriptionIdNotSupportedException;
 import com.stormpx.ex.WildcardSubscriptionsNotSupportedException;
@@ -33,6 +33,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.PemKeyCertOptions;
+import io.vertx.core.shareddata.LocalMap;
 import io.vertx.core.shareddata.Lock;
 
 import java.time.Instant;
@@ -42,8 +43,8 @@ import java.util.stream.Collectors;
 import static com.stormpx.Constants.*;
 
 public class MqttBrokerVerticle extends AbstractVerticle {
+    private final static Logger errLogger=LoggerFactory.getLogger("err");
     private final static Logger logger= LoggerFactory.getLogger("mqttBroker");
-    private final static Logger event_logger= LoggerFactory.getLogger("event");
 
     private MqttServer mqttServer;
 
@@ -111,15 +112,21 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         JsonObject tcpJson = config().getJsonObject(TCP, new JsonObject());
         boolean tcp=tcpJson.getBoolean(Constants.ENABLE,true);
         if (tcp){
-            JsonArray jsonArray = config().getJsonArray(KEY_CERT);
+            JsonArray jsonArray = tcpJson.getJsonArray(KEY_CERT);
             if (jsonArray!=null){
                 PemKeyCertOptions pemKeyCertOptions = new PemKeyCertOptions();
                 J.toJsonStream(jsonArray)
                         .forEach(json->{
-                            String keyPath = json.getString(KEY_PATH);
-                            String certPath = json.getString(CERT_PATH);
+                            String keyPath = json.getString(KEY_FILE);
+                            String certPath = json.getString(CERT_FILE);
                             if (keyPath!=null&&certPath!=null){
-                                logger.info("mqtt tcp key_path:{} cert_path:{}",keyPath,certPath);
+                                //log control
+                                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
+                                localMap.computeIfAbsent("tcp"+keyPath+certPath,k->{
+                                    logger.info("mqtt tcp key_path:{} cert_path:{}",keyPath,certPath);
+                                    return keyPath+certPath;
+                                });
+
                                 pemKeyCertOptions.addKeyPath(keyPath);
                                 pemKeyCertOptions.addCertPath(certPath);
                             }
@@ -134,15 +141,20 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         JsonObject wsJson = config().getJsonObject(WS, new JsonObject());
         Boolean ws = wsJson.getBoolean(Constants.ENABLE, false);
         if (ws){
-            JsonArray jsonArray = config().getJsonArray(KEY_CERT);
+            JsonArray jsonArray = wsJson.getJsonArray(KEY_CERT);
             if (jsonArray!=null){
                 PemKeyCertOptions pemKeyCertOptions = new PemKeyCertOptions();
                 J.toJsonStream(jsonArray)
                         .forEach(json->{
-                            String keyPath = json.getString(KEY_PATH);
-                            String certPath = json.getString(CERT_PATH);
+                            String keyPath = json.getString(KEY_FILE);
+                            String certPath = json.getString(CERT_FILE);
                             if (keyPath!=null&&certPath!=null){
-                                logger.info("mqtt ws key_path:{} cert_path:{}",keyPath,certPath);
+                                //log control
+                                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
+                                localMap.computeIfAbsent("ws"+keyPath+certPath,k->{
+                                    logger.info("mqtt ws key_path:{} cert_path:{}",keyPath,certPath);
+                                    return keyPath+certPath;
+                                });
                                 pemKeyCertOptions.addKeyPath(keyPath);
                                 pemKeyCertOptions.addCertPath(certPath);
                             }
@@ -185,13 +197,13 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
 
 
-        mqttServer.exceptionHandler(t->logger.error("",t))
+        mqttServer.exceptionHandler(t->errLogger.error("",t))
                 .handler(mqttContext->{
-                    event_logger.debug("client:{} try connect",mqttContext.session().clientIdentifier());
+                    logger.debug("client:{} try connect",mqttContext.session().clientIdentifier());
                     mqttContext.exceptionHandler(t->{
 
                         logger.info(mqttContext.session().clientIdentifier()+" ex:{} message:{}",t.getClass().getName(),t.getMessage());
-                        logger.error("",t);
+                        logger.error("ex detail",t);
                     });
                     if (!trySetOption(mqttContext))
                         return;
@@ -215,7 +227,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                         }
                                     }
                                 }else{
-                                    logger.error("authorize client:"+mqttContext.session().clientIdentifier()+" fail ",ar.cause());
+                                    logger.info("authorize client:{} fail ",mqttContext.session().clientIdentifier());
                                     mqttContext.handleException(ar.cause());
                                 }
                             });
@@ -364,7 +376,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                             for (ReasonCode reasonCode : reasonCodes) {
                                 MqttSubscription mqttSubscription = mqttSubscriptions.get(i++);
                                 if (reasonCode.byteValue()>=0x03) {
-                                    event_logger.debug("client:{} subscribe topic:{} qos:{} fail reason:{}",
+                                    logger.debug("client:{} subscribe topic:{} qos:{} fail reason:{}",
                                             mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos(),reasonCode.name().toLowerCase());
                                     continue;
                                 }
@@ -381,7 +393,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                 MqttQoS mqttQoS = MqttQoS.valueOf(reasonCode.byteValue());
                                 mqttSubscription.setQos(mqttQoS);
                                 subscriptions.add(mqttSubscription);
-                                event_logger.debug("client:{} subscribe topic:{} qos:{} success",
+                                logger.debug("client:{} subscribe topic:{} qos:{} success",
                                         mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos());
                                 topicFilter.subscribe(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier(), mqttQoS, mqttSubscription.isNoLocal(), mqttSubscription.isRetainAsPublished(), message.getSubscriptionIdentifier());
                             }
@@ -390,7 +402,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                 dataStorage.filterMatchMessage(topic)
                                         .setHandler(r->{
                                             if (r.failed()){
-                                                logger.error("client:"+ mqttContext.session().clientIdentifier()+" filterMatchMessage fail ",r);
+                                                logger.info("client:{} filterMatchMessage fail ",mqttContext.session().clientIdentifier());
                                                 mqttContext.handleException(r.cause());
                                                 return;
                                             }
@@ -422,7 +434,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                         }
 
                     }else{
-                        logger.error("client:"+mqttContext.session().clientIdentifier()+" authorize subscribe fail", ar.cause());
+                        logger.info("client:{} authorize subscribe fail", mqttContext.session().clientIdentifier());
                         mqttContext.handleException(ar.cause());
                     }
                 });
@@ -432,7 +444,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             List<ReasonCode> reasonCodes = mqttSubscriptions
                     .stream()
                     .peek(s->topicFilter.unSubscribe(s, clientId))
-                    .peek(s->event_logger.debug("client:{} unSubscribe topic:{}",clientId,s))
+                    .peek(s-> logger.debug("client:{} unSubscribe topic:{}",clientId,s))
                     .map(s -> ReasonCode.SUCCESS)
                     .collect(Collectors.toList());
 
@@ -466,7 +478,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                                     dispatcherEvent(result);
                                                 }
                                             }else{
-                                                logger.error("handle clientId :"+clientId+" publish message fail ",ar.cause());
+                                                logger.info("handle clientId :{} publish message fail",clientId);
                                                 mqttContext.handleException(ar.cause());
                                             }
                                         });
@@ -478,7 +490,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                 }
                             }
                         }else {
-                            logger.error("authorize client:"+clientId+" fail publish",aar.cause());
+                            logger.info("authorize client:{} fail publish ",clientId);
                             mqttContext.handleException(aar.cause());
                         }
                     });
@@ -493,7 +505,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         }).publishCompleteHandler(id->{
             dataStorage.release(mqttContext.session().clientIdentifier(),id);
         }).disconnectHandler(message->{
-            event_logger.debug("client:{} disconnect", mqttContext.session().clientIdentifier());
+            logger.debug("client:{} disconnect", mqttContext.session().clientIdentifier());
             dataStorage.dropWillMessage(mqttContext.session().clientIdentifier());
         }).closeHandler(v->{
 
@@ -506,8 +518,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 mqttServer.holder().remove(mqttContext.session().clientIdentifier());
             }
             topicFilter.clearSubscribe(mqttContext.session().clientIdentifier());*/
-
-
 
             MqttSession session = mqttContext.session();
             String clientId = session.clientIdentifier();
@@ -534,35 +544,28 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             if (mqttContext.isDisConnect())
                 return;
 
-            event_logger.debug("client:{} lost", clientId);
+            logger.debug("client:{} lost", clientId);
 
-            if (!will.isWillFlag())
-                return;
-            JsonObject json = will.toJson();
+            if (will.isWillFlag()) {
+                JsonObject json = will.toJson();
 
+                Long delayInterval = json.getLong("delayInterval", 0L);
+                delayInterval = Math.min(delayInterval, mqttContext.sessionExpiryInterval());
 
-
-            Long delayInterval = json.getLong("delayInterval", 0L);
-//            long delay = Math.min(mqttContext.sessionExpiryInterval(), delayInterval);
-
-            if (delayInterval==0){
-                tryPublishWill(clientId,json);
-            }else {
-                TimeoutStream willTimeoutStream = vertx.timerStream(delayInterval);
-                willTimerMap.put(clientId, willTimeoutStream);
-                willTimeoutStream.handler(id -> {
-                    TimeoutStream timeoutStream = willTimerMap.remove(clientId);
-                    if (timeoutStream != null) {
-                        tryPublishWill(clientId, json);
-                    }
-                });
-                dataStorage.storeWillMessage(mqttContext.session().clientIdentifier(), json);
+                if (delayInterval == 0) {
+                    tryPublishWill(clientId, json);
+                } else {
+                    TimeoutStream willTimeoutStream = vertx.timerStream(delayInterval);
+                    willTimerMap.put(clientId, willTimeoutStream);
+                    willTimeoutStream.handler(id -> {
+                        TimeoutStream timeoutStream = willTimerMap.remove(clientId);
+                        if (timeoutStream != null) {
+                            tryPublishWill(clientId, json);
+                        }
+                    });
+                    dataStorage.storeWillMessage(mqttContext.session().clientIdentifier(), json);
+                }
             }
-
-//            TimeoutWill timeoutWill = new TimeoutWill(mqttContext.session().clientIdentifier(), Instant.now().getEpochSecond() + delay);
-            // store will
-
-//            dataStorage.addTimeoutWill(timeoutWill);
 
         });
 
@@ -572,6 +575,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             .setHandler(ar->{
               if (ar.succeeded()){
                   boolean sessionPresent = ar.result();
+                  takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
                   if (sessionPresent){
                       subscribeByClientId(mqttContext,clientId);
                       writeUnFinishMessage(mqttContext,clientId);
@@ -581,15 +585,16 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                       topicFilter.clearSubscribe(clientId);
                       dataStorage.clearSession(clientId);
                   }
-                  takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
-                  /*ref.updateSessionExpiryStream=vertx.periodicStream(1000)
-                          .handler(id->dataStorage.storeSessionState(new SessionState(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval())));*/
+                  if (mqttContext.sessionExpiryInterval()>1) {
+                    ref.updateSessionExpiryStream=vertx.periodicStream((mqttContext.sessionExpiryInterval()-1)*1000)
+                            .handler(id->dataStorage.storeSessionState(new SessionState(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval())));
+                  }
                   mqttServer.holder().add(mqttContext);
+                  logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
                   mqttContext.accept(sessionPresent);
               }else{
-                  logger.error("client:"+clientId+" fetch session fail",ar.cause());
-                  mqttContext.reject(mqttContext.version() == MqttVersion.MQTT_3_1_1 ?
-                          MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE.byteValue() : ReasonCode.UNSPECIFIED_ERROR.byteValue());
+                  logger.error("client:"+clientId+" fetch session fail :{}",ar.cause().getMessage());
+                  mqttContext.handleException(ar.cause());
               }
             });
     }
@@ -602,7 +607,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
      */
     private Future<JsonObject> handlePublishMessage(String clientId,MqttPublishMessage message){
         Promise<Boolean> promise=Promise.promise();
-        event_logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}",clientId,message.getTopic(),message.getQos().value(),message.isRetain());
+        logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}",clientId,message.getTopic(),message.getQos().value(),message.isRetain());
         if (message.getQos()==MqttQoS.EXACTLY_ONCE){
             dataStorage.containsPacketId(clientId,message.getPacketId())
                     .setHandler(r->{
@@ -711,9 +716,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                     //share subscribe get lock
                                     vertx.sharedData().getLockWithTimeout(e.getTopicFilterName()+id,40, ar->{
                                         if (ar.succeeded()){
-                                            if (logger.isDebugEnabled()){
-                                                logger.debug("client:{} get lock success ",clientId);
-                                            }
+                                            logger.debug("client:{} get lock success ",clientId);
+
                                             sendToClient(mqttContext,message.copy()
                                                     .put("qos",Math.min(qos.value(),e.getMqttQoS().value()))
                                                     .put("retain", e.isRetainAsPublished() && retain)
@@ -721,9 +725,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                             //                            vertx.setTimer(40,v->ar.result().release());
 
                                         }else{
-                                            if (logger.isDebugEnabled()){
-                                                logger.debug("client:{} get lock fail cause:{}",clientId,ar.cause());
-                                            }
+                                            logger.debug("client:{} get lock fail cause:{}",clientId,ar.cause());
                                         }
                                     });
 
@@ -844,7 +846,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                             json.getBoolean("retainAsPublished",false),json.getInteger("identifier",0));
                                 });
                    }else{
-                       logger.error("fetch subscription fail",ar.cause().getMessage());
+                       logger.info("fetch subscription fail :{}",ar.cause().getMessage());
                        mqttContext.handleException(ar.cause());
                    }
                 });
@@ -869,7 +871,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                             }
                         });
             }else{
-                logger.error("fetch un release message fail ",ar.cause().getMessage());
+                logger.info("fetch unFinish message fail:{} ",ar.cause().getMessage());
                 mqttContext.handleException(ar.cause());
             }
         });
@@ -883,7 +885,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         if (messageExpiryInterval!=null) {
             willJson.put("expiryTimestamp", Instant.now().getEpochSecond()+messageExpiryInterval);
         }
-        willJson.put("will",true);
+        willJson.remove("delayInterval");
         return dataStorage.storeMessage(willJson)
                 .compose(id->{
                     willJson.put("id",id);
@@ -935,6 +937,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         if (willTimer!=null){
             willTimer.cancel();
         }
+        if (dataStorage!=null)
+            dataStorage.close();
         stopFuture.complete();
     }
 

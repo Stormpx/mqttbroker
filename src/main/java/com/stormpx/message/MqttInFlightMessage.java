@@ -1,4 +1,4 @@
-package com.stormpx.broker;
+package com.stormpx.message;
 
 
 import io.vertx.core.Promise;

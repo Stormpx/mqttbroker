@@ -23,21 +23,14 @@ import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) {
-
-
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
-//        Logger logger = LoggerFactory.getLogger("test");
-
 
         LoggerContext loggerContext = (LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory();
         loggerContext.getLogger("test").setLevel(Level.DEBUG);
 
-//        logger.info("hello:{}","storm");
-
-
         Vertx vertx = Vertx.vertx();
-        vertx.exceptionHandler(t->t.printStackTrace());
-        MqttBroker.start(vertx,"-c","D:\\JavaProject\\mqttbroker\\config.json")
+        vertx.exceptionHandler(Throwable::printStackTrace);
+        MqttBroker.start(vertx,args)
                 .setHandler(ar->{
                     if (ar.failed()) {
                         ar.cause().printStackTrace();

@@ -1,6 +1,6 @@
 package com.stormpx.auth;
 
-import com.stormpx.broker.MqttAuth;
+import com.stormpx.message.MqttAuth;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.mqtt.ReasonCode;
@@ -81,18 +81,19 @@ public class HttpAuthenticator implements Authenticator {
         httpRequest.sendJsonObject(jsonObject,ar->{
             if (ar.succeeded()){
                 HttpResponse<Buffer> response = ar.result();
+                String contentType = response.headers().get(HttpHeaders.CONTENT_TYPE);
                 if (response.statusCode()>=200&&response.statusCode()<300){
                     //success
                     AuthResult<Boolean> authResult = AuthResult.create(true);
 
-                    if (response.headers().get(HttpHeaders.CONTENT_TYPE).contains("json")) {
+                    if (contentType!=null&&contentType.contains("json")) {
                         JsonObject json = response.bodyAsJsonObject();
                         getUserProperty(json,authResult);
                     }
                     promise.complete(authResult);
                 }else if (response.statusCode()>=400&&response.statusCode()<500){
                     AuthResult<Boolean> authResult = AuthResult.create(false);
-                    if (response.headers().get(HttpHeaders.CONTENT_TYPE).contains("json")) {
+                    if (contentType!=null&&contentType.contains("json")) {
                         JsonObject json = response.bodyAsJsonObject();
                         getUserProperty(json,authResult);
                     }
@@ -142,16 +143,17 @@ public class HttpAuthenticator implements Authenticator {
         httpRequest.sendJsonObject(params,ar->{
             if (ar.succeeded()){
                 HttpResponse<Buffer> response = ar.result();
+                String contentType = response.headers().get(HttpHeaders.CONTENT_TYPE);
                 if (response.statusCode()>=200&&response.statusCode()<300){
                     //success
-                    if (response.headers().get(HttpHeaders.CONTENT_TYPE).contains("json")) {
+                    if (contentType!=null&&contentType.contains("json")) {
                         JsonObject json = response.bodyAsJsonObject();
                         // topic array topic!=nul&&(qos==null||qos<0||qos>2)  mean not authorized
-                        JsonArray topic = json.getJsonArray("topic");
+                        JsonArray topic = json.getJsonArray("topicFilters");
                         Map<String,Integer> map=new HashMap<>();
-                        J.toJsonStream(topic)
-                                .forEach(j->map.put(j.getString("topicFilter"),j.getInteger("qos")));
-
+                        if (topic!=null) {
+                            J.toJsonStream(topic).forEach(j -> map.put(j.getString("topicFilter"), j.getInteger("qos")));
+                        }
                         List<ReasonCode> reasonCodes=mqttSubscriptions.stream().map(mqttSubscription -> {
                             if (!map.containsKey(mqttSubscription.getTopicFilter())){
                                 return ReasonCode.valueOf((byte) mqttSubscription.getQos().value());
@@ -170,7 +172,7 @@ public class HttpAuthenticator implements Authenticator {
 
                 }else if (response.statusCode()>=400&&response.statusCode()<500){
                     AuthResult<List<ReasonCode>> authResult = AuthResult.create(mqttSubscriptions.stream().map(m -> ReasonCode.NOT_AUTHORIZED).collect(Collectors.toList()));
-                    if (response.headers().get(HttpHeaders.CONTENT_TYPE).contains("json")) {
+                    if (contentType!=null&&contentType.contains("json")) {
                         JsonObject json = response.bodyAsJsonObject();
                         getUserProperty(json,authResult);
                     }
@@ -179,7 +181,7 @@ public class HttpAuthenticator implements Authenticator {
                     promise.fail(response.statusMessage());
                 }
             }else{
-                promise.fail(ar.cause());;
+                promise.fail(ar.cause());
             }
         });
 

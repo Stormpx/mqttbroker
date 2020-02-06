@@ -1,9 +1,9 @@
 package com.stormpx.server;
 
-import com.stormpx.broker.MqttBrokerMessage;
-import com.stormpx.broker.MqttPublishMessage;
-import com.stormpx.broker.MqttSubscribeMessage;
-import com.stormpx.broker.MqttUnSubscribeMessage;
+import com.stormpx.message.MqttBrokerMessage;
+import com.stormpx.message.MqttPublishMessage;
+import com.stormpx.message.MqttSubscribeMessage;
+import com.stormpx.message.MqttUnSubscribeMessage;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.ControlPacketType;
 import com.stormpx.mqtt.FixedHeader;
@@ -46,6 +46,14 @@ public class Mqtt3Context extends AbstractMqttContext {
         super.handleException(throwable);
         if (isClose())
             return;
+
+        if (!connectAck) {
+            MqttPacket packet = new MqttConnAckPacket(FixedHeader.CONNACK,
+                     MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE.byteValue(), null,false);
+            mqttSocket.writePacket(packet);
+            connectAck=true;
+        }
+        //disconnect
         close();
 
     }

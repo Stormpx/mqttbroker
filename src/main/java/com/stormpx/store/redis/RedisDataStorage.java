@@ -18,6 +18,11 @@ public class RedisDataStorage implements DataStorage {
     }
 
     @Override
+    public Future<Void> close() {
+        return null;
+    }
+
+    @Override
     public void clearSession(String clientId) {
 
     }
@@ -112,7 +117,7 @@ public class RedisDataStorage implements DataStorage {
         return null;
     }
 
-    @Override
+  /*  @Override
     public void addTimeoutWill(TimeoutWill timeoutWill) {
 
     }
@@ -125,5 +130,5 @@ public class RedisDataStorage implements DataStorage {
     @Override
     public Future<TimeoutWill> fetchFirstTimeoutWill() {
         return null;
-    }
+    }*/
 }

@@ -6,12 +6,20 @@ import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
+import io.vertx.core.impl.ConcurrentHashSet;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.*;
+import io.vertx.core.shareddata.AsyncMap;
+import io.vertx.core.shareddata.LocalMap;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class MqttServerImpl implements MqttServer {
     private final static Logger logger = LoggerFactory.getLogger(MqttServer.class);
+    private final static Set<Integer> set=new HashSet<>();
+
     private Vertx vertx;
     private MqttServerOption mqttServerOption;
     private NetServer netServer;
@@ -77,6 +85,9 @@ public class MqttServerImpl implements MqttServer {
 
         netServerOptions.setHost(mqttServerOption.getTcpHort());
         netServerOptions.setPort(mqttServerOption.getTcpPort());
+
+
+
         this.netServer= vertx.createNetServer(netServerOptions.setUsePooledBuffers(false));
 
         this.netServer.connectHandler(netSocket->{
@@ -84,7 +95,11 @@ public class MqttServerImpl implements MqttServer {
         });
         this.netServer.listen(ar->{
             if (ar.succeeded()){
-                logger.info("start tcp server success port:{}",netServerOptions.getPort());
+                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
+                localMap.computeIfAbsent(netServerOptions.getPort(),(k)->{
+                    logger.info("start tcp server success port:{} ssl:{}", netServerOptions.getPort(),netServerOptions.isSsl());
+                    return netServerOptions.getPort();
+                });
                 promise.complete();
             }else {
                 promise.fail(ar.cause());
@@ -102,7 +117,7 @@ public class MqttServerImpl implements MqttServer {
         Promise<Void> promise=Promise.promise();
         String wsPath = mqttServerOption.getWsPath();
         HttpServerOptions httpServerOptions = new HttpServerOptions();
-        httpServerOptions.setWebsocketSubProtocols("mqtt");
+        httpServerOptions.setWebsocketSubProtocols("mqtt,mqttv3.1");
         httpServerOptions.setSni(mqttServerOption.isSni());
         httpServerOptions.setTcpNoDelay(mqttServerOption.isTcpNoDelay());
         httpServerOptions.setSsl(mqttServerOption.isWsSsl());
@@ -112,19 +127,23 @@ public class MqttServerImpl implements MqttServer {
         httpServerOptions.setPort(mqttServerOption.getWsPort());
 
         this.httpServer= vertx.createHttpServer(httpServerOptions);
-
-         this.httpServer.websocketHandler(websocket->{
+        this.httpServer.exceptionHandler(Throwable::printStackTrace);
+        this.httpServer.websocketHandler(websocket->{
              if (!websocket.path().equals(wsPath)) {
                  websocket.reject();
                  return;
              }
              websocket.accept();
              this.mqttConnectionHolder.handleWebSocket(websocket,handler,exceptionHandler);
-         });
-
+        });
          this.httpServer.listen(ar->{
              if (ar.succeeded()){
-                 logger.info("start http server success port:{} path:{}",httpServerOptions.getPort(),wsPath);
+                 LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
+                 localMap.computeIfAbsent(httpServerOptions.getPort(),(k)->{
+
+                     logger.info("start http server success port:{} path:{} ssl:{}",httpServerOptions.getPort(),wsPath,httpServerOptions.isSsl());
+                     return httpServerOptions.getPort();
+                 });
                  promise.complete();
              }else {
                  promise.fail(ar.cause());

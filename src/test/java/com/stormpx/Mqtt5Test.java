@@ -12,6 +12,7 @@ import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5RetainHandling;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscribe;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscription;
+import com.stormpx.kit.UnSafeJsonObject;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -44,17 +45,10 @@ public class Mqtt5Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
+        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
         DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
 
-           /* client2 = MqttClient.builder()
-                    .identifier(UUID.randomUUID().toString())
-                    .serverHost("localhost")
-                    .serverPort(11883)
-                    .useMqttVersion5()
-                    .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
-                    .build().toBlocking();
-            client2.connect();*/
 
             context.completeNow();
 
@@ -156,6 +150,7 @@ public class Mqtt5Test {
         client1.connect();
 
         ByteBuffer wrap = ByteBufferUtil.wrap("123".getBytes(StandardCharsets.UTF_8));
+
         client1.publishWith().topic("/retain/test/2").retain(true).qos(MqttQos.EXACTLY_ONCE).payload("111".getBytes(StandardCharsets.UTF_8)).correlationData(wrap).send();
 
         Mqtt5BlockingClient client2=MqttClient.builder()

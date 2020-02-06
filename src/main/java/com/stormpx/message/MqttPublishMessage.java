@@ -1,4 +1,4 @@
-package com.stormpx.broker;
+package com.stormpx.message;
 
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttProperties;

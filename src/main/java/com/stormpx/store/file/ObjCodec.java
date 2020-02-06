@@ -32,7 +32,6 @@ public class ObjCodec {
             jsonArray.add(properties);
         }
         JsonObject json = new JsonObject();
-        json.put("rnf",rnf);
         json.put("id",idBytes.toString(StandardCharsets.UTF_8));
         json.put("topic",topicBytes.toString(StandardCharsets.UTF_8));
         json.put("qos",qosAndRetain>>1);
@@ -41,7 +40,9 @@ public class ObjCodec {
         json.put("expiryTimestamp",expiryTimestamp);
         json.put("payload",Buffer.buffer(payload).getBytes());
         json.put("properties",jsonArray);
-        return new MessageObj(json);
+        MessageObj messageObj = new MessageObj(json);
+        messageObj.add(rnf);
+        return messageObj;
 
     }
 
@@ -109,8 +110,11 @@ public class ObjCodec {
             boolean retain = (qosAndRetain & 1) == 1;
             int qos = qosAndRetain >> 1;
             long delayInterval = byteBuf.readLong();
-            long messageExpiryInterval = byteBuf.readLong();
-
+            byte messageExpiryIntervalFlag = byteBuf.readByte();
+            Long messageExpiryInterval=null;
+            if (messageExpiryIntervalFlag!=0) {
+                messageExpiryInterval = byteBuf.readUnsignedInt();
+            }
             int payloadLength = byteBuf.readInt();
             ByteBuf payload = byteBuf.readBytes(payloadLength);
             //properties
@@ -126,7 +130,9 @@ public class ObjCodec {
             will.put("retain",retain);
             will.put("payload",Buffer.buffer(payload).getBytes());
             will.put("delayInterval",delayInterval);
-            will.put("messageExpiryInterval",messageExpiryInterval);
+            if (messageExpiryInterval!=null) {
+                will.put("messageExpiryInterval", messageExpiryInterval);
+            }
             will.put("properties",properties);
             sessionObj.setWill(will);
         }
@@ -189,6 +195,8 @@ public class ObjCodec {
     public Buffer encodeSessionObj(SessionObj session){
         String clientId = session.getClientId();
         Long expiryTimestamp = session.getExpiryTimestamp();
+        if (expiryTimestamp==null)
+            expiryTimestamp=0L;
         JsonObject will = session.getWill();
         JsonArray topicSubscriptions = new JsonArray(session.getTopicSubscriptions().getList());
         Map<Integer, JsonObject> messageLinkMap = new LinkedHashMap<>(session.getMessageLinkMap());
@@ -205,7 +213,7 @@ public class ObjCodec {
             Integer qos = will.getInteger("qos");
             Boolean retain = will.getBoolean("retain");
             Long delayInterval = will.getLong("delayInterval",0L);
-            Long messageExpiryInterval = will.getLong("messageExpiryInterval",0L);
+            Long messageExpiryInterval = will.getLong("messageExpiryInterval");
             byte[] payloads = will.getBinary("payload");
             JsonArray properties = will.getJsonArray("properties", J.EMPTY_ARRAY);
 
@@ -213,7 +221,7 @@ public class ObjCodec {
 
             byte qosARetain = encodeQosAndRetain(retain, qos);
 
-            size += (2 + topicBytes.length + 1 + 4 + 4 + payloads.length);
+            size += (2 + topicBytes.length + 1 + 4+5 + 4 + payloads.length);
 
             List<Buffer> propertiesBuffers = new ArrayList<>();
             int propertiesSize = 0;
@@ -232,8 +240,12 @@ public class ObjCodec {
 
             willBuffer.appendByte(qosARetain);
             willBuffer.appendLong(delayInterval);
-            willBuffer.appendLong(messageExpiryInterval);
-
+            if (messageExpiryInterval!=null) {
+                willBuffer.appendByte((byte) 1);
+                willBuffer.appendUnsignedInt(messageExpiryInterval);
+            }else{
+                willBuffer.appendByte((byte) 0);
+            }
             willBuffer.appendInt(payloads.length)
                     .appendBytes(payloads);
 

@@ -1,6 +1,6 @@
 package com.stormpx.auth;
 
-import com.stormpx.broker.MqttAuth;
+import com.stormpx.message.MqttAuth;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.mqtt.ReasonCode;

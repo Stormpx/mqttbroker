@@ -64,7 +64,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
                         if (action==null)
                             return;
                         Object body = message.body();
-                        logger.debug("verticle:{} request action:{} body:{}",deploymentID(),action,body);
+                        logger.debug("receive request action:{} body:{}",deploymentID(),action,body);
                         switch (action){
                             case "clearSession":
                                 clearSession((JsonObject) body);
@@ -143,12 +143,19 @@ public class MqttStoreVerticle extends AbstractVerticle {
                 timeoutStream.handler(id->{
                     String storeConfigString = storeConfig.getString(Constants.SAVE_DIR);
                     if (storeConfigString != null && !storeConfigString.isBlank()) {
-                        writeFile(Path.of(storeConfigString).normalize().toString());
+                        long currentTimeMillis = System.currentTimeMillis();
+                        writeFile(Path.of(storeConfigString).normalize().toString())
+                            .setHandler(ar->{
+                                if (ar.failed())
+                                    logger.error("save data fail",ar.cause());
+                                else
+                                    logger.debug("save data success cost:{}ms",System.currentTimeMillis()-currentTimeMillis);
+                            });
                     }
                 });
             }
             this.expiryStream=vertx.periodicStream(60*1000).handler(id->{
-                logger.info("ready clear expiry publish message");
+                logger.debug("start clean expiry message");
                 long epochSecond = Instant.now().getEpochSecond();
                 publishMessageStore.keys().forEach(s->{
                     MessageObj messageObj = publishMessageStore.getObj(s);
@@ -260,7 +267,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
                 byte[] idBytes = MqttCodecUtil.encodeUtf8String(id);
                 Buffer buffer = Buffer.buffer(1+ 2 + topicBytes.length + 4 + idBytes.length);
                 buffer.appendByte((byte) 1);
-                buffer.appendUnsignedInt(topicBytes.length);
+                buffer.appendUnsignedShort(topicBytes.length);
                 buffer.appendBytes(topicBytes);
                 buffer.appendInt(idBytes.length);
                 buffer.appendBytes(idBytes);

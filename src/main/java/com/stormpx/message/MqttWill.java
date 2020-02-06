@@ -1,4 +1,4 @@
-package com.stormpx.broker;
+package com.stormpx.message;
 
 import com.stormpx.mqtt.MqttProperties;
 import com.stormpx.mqtt.MqttProperty;
@@ -19,7 +19,7 @@ public class MqttWill {
     private String willTopic;
     private Buffer willPayload;
     private Long willDelayInterval=0L;
-    private Long messageExpiryInterval=0xffffffffL;
+    private Long messageExpiryInterval;
 
     public MqttWill(boolean willFlag,List<MqttProperties> willProperties, boolean retain, MqttQoS qoS, String willTopic, Buffer willPayload) {
         this.willFlag=willFlag;

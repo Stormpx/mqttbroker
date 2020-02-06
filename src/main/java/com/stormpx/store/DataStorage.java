@@ -11,6 +11,9 @@ public interface DataStorage {
 
     Future<Void> init(JsonObject config);
 
+
+    Future<Void> close();
+
     /**
      * delete all unReleaseMessage receivedPacketId subscription
      * @param clientId

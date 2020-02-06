@@ -15,6 +15,7 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.WebSocketBase;
 import io.vertx.core.net.SocketAddress;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,7 +44,12 @@ public class WebSocketWrapper implements MqttSocket {
         this.buf=Unpooled.compositeBuffer();
         this.pending=new ArrayList<>();
         this.timeoutStream=vertx.periodicStream(5000).handler(this::handleTimeout);
-
+        webSocketBase.exceptionHandler(t->{
+            t.printStackTrace();
+            if (!(t instanceof IOException)) {
+                t.printStackTrace();
+            }
+        });
         webSocketBase.frameHandler(frame->{
            if (!frame.isBinary()){
                close();
@@ -55,9 +61,9 @@ public class WebSocketWrapper implements MqttSocket {
 
             buf.addComponent(true,byteBuf);
 
-            while (byteBuf.isReadable()) {
+            while (buf.isReadable()) {
                 int readableBytes = buf.readableBytes();
-                mqttDecoder.decode(byteBuf, pending);
+                mqttDecoder.decode(buf, pending);
                 callHandler();
                 if (readableBytes==buf.readableBytes()){
                     buf.discardReadComponents();
@@ -139,10 +145,7 @@ public class WebSocketWrapper implements MqttSocket {
 
     @Override
     public MqttSocket writePacket(MqttPacket packet) {
-        List<Object> list = new ArrayList<>(1);
-        mqttEncoder.encode(packet,list);
-        webSocketBase.writeBinaryMessage(Buffer.buffer((ByteBuf) list.get(0)));
-        return this;
+        return writePacket(packet,null);
     }
 
     @Override

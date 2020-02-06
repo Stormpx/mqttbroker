@@ -1,7 +1,7 @@
 package com.stormpx.server;
 
-import com.stormpx.broker.MqttAuth;
-import com.stormpx.broker.MqttWill;
+import com.stormpx.message.MqttAuth;
+import com.stormpx.message.MqttWill;
 import com.stormpx.mqtt.MqttSessionOption;
 
 import java.time.Instant;
@@ -51,7 +51,7 @@ public class MqttSessionImpl implements MqttSession {
     public int nextMessageId() {
         if (lastMessageId >= 65536)
             lastMessageId = 1;
-        //may dead loop
+        //may infinite loop
         while (set.contains(lastMessageId)) {
             lastMessageId+=1;
             if (lastMessageId >= 65536)

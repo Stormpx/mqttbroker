@@ -15,16 +15,15 @@ public class Constants {
     public final static String PORT ="port";
     public final static String PATH ="path";
     public static final String KEY_CERT = "key_cert";
-    public static final String KEY_PATH = "key_path";
-    public static final String CERT_PATH = "cert_path";
+    public static final String KEY_FILE = "key_file";
+    public static final String CERT_FILE = "cert_file";
 
 
     public final static String AUTH ="auth";
 
     public final static String MQTT="mqtt";
-    public final static String MQTT_MAX_MESSAGE_EXPIRY_INTERVAL="mqtt_max_message_expiry_interval";
-    public final static String MQTT_MAX_SESSION_EXPIRY_INTERVAL="mqtt_max_session_expiry_interval";
-
+    public final static String MQTT_MAX_MESSAGE_EXPIRY_INTERVAL="max_message_expiry_interval";
+    public final static String MQTT_MAX_SESSION_EXPIRY_INTERVAL="max_session_expiry_interval";
     public final static String MQTT_MAXIMUM_QOS="maximum_qos";
     public final static String MQTT_MAXIMUM_PACKET_SIZE="maximum_packet_size";
     public final static String MQTT_RECEIVE_MAXIMUM="receive_maximum";
@@ -40,8 +39,5 @@ public class Constants {
     public final static String SAVE_INTERVAL ="save_interval";
     public final static String SAVE_DIR ="save_dir";
 
-    public static String toAddress(String topic){
-        return "topic-"+topic;
-    }
 
 }

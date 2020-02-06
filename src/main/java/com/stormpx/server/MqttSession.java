@@ -1,7 +1,7 @@
 package com.stormpx.server;
 
-import com.stormpx.broker.MqttAuth;
-import com.stormpx.broker.MqttWill;
+import com.stormpx.message.MqttAuth;
+import com.stormpx.message.MqttWill;
 
 public interface MqttSession {
 

@@ -25,6 +25,7 @@ public class ObjCodecTest {
     public void codecMessageObjTest(){
         ObjCodec objCodec = new ObjCodec();
         JsonObject json = new JsonObject();
+        json.put("id","2132");
         json.put("topic","/etse/topic");
         json.put("qos",1);
         json.put("retain",true);

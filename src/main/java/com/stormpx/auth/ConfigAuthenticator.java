@@ -1,6 +1,6 @@
 package com.stormpx.auth;
 
-import com.stormpx.broker.MqttAuth;
+import com.stormpx.message.MqttAuth;
 import com.stormpx.kit.J;
 import com.stormpx.kit.StringPair;
 import com.stormpx.kit.value.Values3;
@@ -64,7 +64,7 @@ public class ConfigAuthenticator implements Authenticator{
                                     return;
                                 JsonObject userProperty = j.getJsonObject("user_property",emptyJsonObject);
                                 List<StringPair> pairs = userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList());
-                                permissions.permissionMap.put(topic,Values3.values(j.getInteger("maxQos",2),j.getString("action"),pairs));
+                                permissions.permissionMap.put(topic,Values3.values(j.getInteger("max_qos",2),j.getString("action"),pairs));
                             });
                     permissionMap.put(clientId,permissions);
                 });

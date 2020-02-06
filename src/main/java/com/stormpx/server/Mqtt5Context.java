@@ -1,6 +1,6 @@
 package com.stormpx.server;
 
-import com.stormpx.broker.*;
+import com.stormpx.message.*;
 import com.stormpx.ex.*;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.*;
@@ -187,7 +187,7 @@ public class Mqtt5Context extends AbstractMqttContext {
             packet = new MqttPapaPacket(FixedHeader.DISCONNECT,
                     0, reasonCode, properties);
         }else {
-            packet = new MqttConnAckPacket(FixedHeader.SUBACK,
+            packet = new MqttConnAckPacket(FixedHeader.CONNACK,
                     reasonCode.byteValue(), properties, false);
         }
         mqttSocket.writePacket(packet,ar->{

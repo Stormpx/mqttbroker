@@ -1,5 +1,17 @@
 package com.stormpx;
 
+import com.hivemq.client.mqtt.MqttGlobalPublishFilter;
+import com.hivemq.client.mqtt.datatypes.MqttQos;
+import com.hivemq.client.mqtt.mqtt3.Mqtt3BlockingClient;
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5BlockingClient;
+import com.hivemq.client.mqtt.mqtt5.datatypes.Mqtt5UserProperties;
+import com.hivemq.client.mqtt.mqtt5.datatypes.Mqtt5UserProperty;
+import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
+import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5RetainHandling;
+import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscribe;
+import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscription;
+import com.stormpx.kit.UnSafeJsonObject;
 import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.DeploymentOptions;
@@ -17,8 +29,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static com.stormpx.Constants.*;
 
@@ -33,141 +47,167 @@ public class Mqtt3Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-        final DeploymentOptions deploymentOptions = new DeploymentOptions();
-        JsonObject mqtt = new JsonObject();
-        deploymentOptions.setConfig(new JsonObject().put(MQTT,mqtt));
-        vertx.deployVerticle(new MqttBrokerVerticle(), deploymentOptions,context.succeeding(v->{
-            client1 = MqttClient.create(vertx, new MqttClientOptions()
-                    .setClientId("client1").setAutoKeepAlive(true).setWillFlag(true).setWillQoS(1).setWillMessage("client1 die").setWillRetain(false).setWillTopic("/test/will"));
-            client2 = MqttClient.create(vertx, new MqttClientOptions()
-                    .setClientId("client2").setAutoKeepAlive(true).setWillFlag(true).setWillQoS(2).setWillMessage("client2 die").setWillRetain(true).setWillTopic("/test/will"));
-            client1.connect(11883,"localhost",context.succeeding(ar->{
-                System.out.println("client1 connect");
-                try {
-                    Assertions.assertEquals(MqttConnectReturnCode.CONNECTION_ACCEPTED.byteValue(),ar.code().byteValue());
-                    Assertions.assertFalse(ar.isSessionPresent());
-
-                    client2.connect(11883,"localhost",context.succeeding(arr->{
-                        System.out.println("client2 connect");
-                        try {
-                            Assertions.assertEquals(MqttConnectReturnCode.CONNECTION_ACCEPTED.byteValue(),arr.code().byteValue());
-                            Assertions.assertFalse(arr.isSessionPresent());
-                            context.completeNow();
-                        } catch (Throwable e) {
-                            e.printStackTrace();
-                            context.failNow(e);
-                        }
-                    }));
-                } catch (Throwable e) {
-                    e.printStackTrace();
-                    context.failNow(e);
-                }
-            }));
-        }));
+        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
+        DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
+        vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
 
 
-    }
+            context.completeNow();
 
-    @Test
-    public void subscribeTest(Vertx vertx, VertxTestContext context){
-        Map<String, Integer> map=new HashMap<>();
-        map.put("/test/qos0",0);
-        map.put("/test/qos1",1);
-        map.put("/test/qos2",2);
-        client1.subscribe(map,context.succeeding(id->{
-            System.out.println(id);
-            client2.subscribe(map,context.completing());
         }));
 
     }
 
     @Test
-    public void unSubscribeTest(Vertx vertx, VertxTestContext context){
-        Checkpoint checkpoint = context.laxCheckpoint(3);
-        client1.unsubscribe("/test/qos0",context.succeeding(v->checkpoint.flag()));
-        client1.unsubscribe("/test/qos1",context.succeeding(v->checkpoint.flag()));
-        client1.unsubscribe("/test/qos2",context.succeeding(v->checkpoint.flag()));
+    public void subscribeTest(){
+        Mqtt3BlockingClient client1= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client1.connect();
+
+        client1.subscribeWith()
+                .addSubscription()
+                .topicFilter("/test/qos0").qos(MqttQos.AT_MOST_ONCE)
+                .applySubscription()
+                .addSubscription()
+                .topicFilter("/test/qos1").qos(MqttQos.AT_LEAST_ONCE)
+                .applySubscription()
+                .addSubscription()
+                .topicFilter("/test/qos2").qos(MqttQos.EXACTLY_ONCE)
+                .applySubscription()
+        .send();
+
 
     }
 
     @Test
-    public void publishTest(Vertx vertx, VertxTestContext context){
-        Map<String, Integer> map=new HashMap<>();
-        map.put("/test/qos0",0);
-        map.put("/test/qos1",1);
-        map.put("/test/qos2",2);
-        Checkpoint checkpoint1 = context.laxCheckpoint(3);
-        long millis = System.currentTimeMillis();
-        client1.publishHandler(message->{
-            System.out.println(System.currentTimeMillis()-millis);
-            System.out.println(String.format("topicName: %s qos: %s dup: %s retain: %s payload: %s",
-                    message.topicName(),message.qosLevel().value(),message.isDup(),message.isRetain(),message.payload().toString("utf-8")));
-            switch (message.topicName()){
-                case "/test/qos0":
-                    Assertions.assertEquals(0,message.qosLevel().value());
-                    break;
-                case "/test/qos1":
-                    Assertions.assertEquals(1,message.qosLevel().value());
-                    break;
-                case "/test/qos2":
-                    Assertions.assertEquals(2,message.qosLevel().value());
-                    break;
-                default:
-                    context.failNow(new RuntimeException("unexpected topic name"+message.topicName()));
-            }
-            checkpoint1.flag();
-        });
-        client1.subscribe(map,context.succeeding(id->{
-            System.out.println(id);
-            client2.subscribe(map,context.succeeding(i->{
-                System.out.println("client2 subscribe");
-                client2.publish("/test/qos0", Buffer.buffer("ss"), MqttQoS.AT_MOST_ONCE,false,false,context.succeeding());
-                client2.publish("/test/qos1", Buffer.buffer("ss"), MqttQoS.AT_LEAST_ONCE,false,false,context.succeeding());
-                client2.publish("/test/qos2", Buffer.buffer("ss"), MqttQoS.EXACTLY_ONCE,false,false,context.succeeding());
-            }));
-        }));
+    public void unSubscribeTest(){
+        Mqtt3BlockingClient client1= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client1.connect();
+
+        client1.unsubscribeWith()
+                .addTopicFilter("/test/qos0")
+                .addTopicFilter("/test/qos1")
+                .addTopicFilter("/test/qos2")
+                .send();
 
     }
 
     @Test
-    public void retainTest(Vertx vertx,VertxTestContext context){
-        Map<String, Integer> map=new HashMap<>();
-        map.put("/retain/qos0",0);
-        map.put("/retain/qos1",1);
-        map.put("/retain/qos2",2);
+    public void publishTest(){
 
-        Checkpoint checkpoint = context.checkpoint(3);
+        Mqtt3BlockingClient client1= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client1.connect();
 
-        client2.publishHandler(message->{
-            try {
-                System.out.println("client2 "+ String.format("topicName: %s qos: %s dup: %s retain: %s payload: %s",
-                        message.topicName(),message.qosLevel().value(),message.isDup(),message.isRetain(),message.payload().toString("utf-8")));
+        Mqtt3BlockingClient client2= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client2.connect();
 
-                Assertions.assertTrue(message.isRetain());
-                checkpoint.flag();
-            } catch (Throwable e) {
-                e.printStackTrace();
-                context.failNow(e);
-            }
-        });
-        int[] a={0};
-        client1.publishCompletionHandler(id->{
-            a[0]++;
-            System.out.println(a[0]);
-            if (a[0]==3){
-                client2.subscribe(map,context.succeeding());
-            }
-        });
-        client1.subscribe(map,context.succeeding(id->{
-            client1.publish("/retain/qos0",Buffer.buffer("test"),MqttQoS.AT_LEAST_ONCE,false,true,context.succeeding(i1->{
-                client1.publish("/retain/qos1",Buffer.buffer("test"),MqttQoS.AT_LEAST_ONCE,false,true,context.succeeding(i2->{
-                    client1.publish("/retain/qos2",Buffer.buffer("test"),MqttQoS.AT_LEAST_ONCE,false,true,context.succeeding(i3->{
+        client1.subscribeWith()
+                .addSubscription()
+                .topicFilter("/test/qos0").qos(MqttQos.AT_MOST_ONCE)
+                .applySubscription()
+                .addSubscription()
+                .topicFilter("/test/qos1").qos(MqttQos.AT_LEAST_ONCE)
+                .applySubscription()
+                .addSubscription()
+                .topicFilter("/test/qos2").qos(MqttQos.EXACTLY_ONCE)
+                .applySubscription()
+                .send();
 
-                    }));
-                }));
-            }));
 
-        }));
+        Mqtt3BlockingClient.Mqtt3Publishes publishes = client1.publishes(MqttGlobalPublishFilter.ALL);
+
+        try {
+
+            client2.publishWith().topic("/test/qos0").qos(MqttQos.AT_MOST_ONCE).payload(new byte[]{1}).send();
+            Mqtt3Publish publish = publishes.receive();
+            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos0");
+            Assertions.assertEquals(publish.getQos(),MqttQos.AT_MOST_ONCE);
+
+            client2.publishWith().topic("/test/qos1").qos(MqttQos.AT_LEAST_ONCE).payload(new byte[]{1}).send();
+            publish = publishes.receive();
+            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos1");
+            Assertions.assertEquals(publish.getQos(),MqttQos.AT_LEAST_ONCE);
+
+            client2.publishWith().topic("/test/qos2").qos(MqttQos.EXACTLY_ONCE).payload(new byte[]{1}).send();
+            publish = publishes.receive();
+            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos2");
+            Assertions.assertEquals(publish.getQos(),MqttQos.EXACTLY_ONCE);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    @Test
+    public void retainTest(){
+
+        Mqtt3BlockingClient client1= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client1.connect();
+
+        Mqtt3BlockingClient client2= com.hivemq.client.mqtt.MqttClient.builder()
+                .identifier(UUID.randomUUID().toString())
+                .serverHost("localhost")
+                .serverPort(11883)
+                .useMqttVersion3()
+                .build().toBlocking();
+        client2.connect();
+
+
+        Mqtt3BlockingClient.Mqtt3Publishes publishes = client1.publishes(MqttGlobalPublishFilter.ALL);
+
+        try {
+
+            client2.publishWith().topic("/test/qos1").qos(MqttQos.AT_LEAST_ONCE).retain(true).payload(new byte[]{1}).send();
+
+            client1.subscribeWith()
+                    .addSubscription()
+                    .topicFilter("/test/qos1").qos(MqttQos.AT_LEAST_ONCE)
+                    .applySubscription()
+                    .send();
+            Mqtt3Publish publish = publishes.receive();
+            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos1");
+            Assertions.assertEquals(publish.getQos(),MqttQos.AT_LEAST_ONCE);
+            Assertions.assertEquals(publish.isRetain(),true);
+
+
+            client2.publishWith().topic("/test/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
+            client1.subscribeWith()
+                    .addSubscription()
+                    .topicFilter("/test/qos2").qos(MqttQos.EXACTLY_ONCE)
+                    .applySubscription()
+                    .send();
+
+            publish = publishes.receive();
+            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos2");
+            Assertions.assertEquals(publish.getQos(),MqttQos.EXACTLY_ONCE);
+            Assertions.assertEquals(publish.isRetain(),true);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
 
