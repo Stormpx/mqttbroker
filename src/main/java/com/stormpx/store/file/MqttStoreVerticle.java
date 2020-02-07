@@ -197,7 +197,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
             List<String> list = vertx.fileSystem().readDirBlocking(folder);
             for (String s : list) {
 
-                if (!new File(s).getName().equals("db.da"))
+                if (!new File(s).getName().equals("data.db"))
                     continue;
 
                 Buffer buffer = vertx.fileSystem().readFileBlocking(s);
@@ -309,7 +309,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
 
             asyncFile.end(ar->{
                 if (ar.succeeded()){
-                    vertx.fileSystem().move(randomPath,path+"/db.da",new CopyOptions().setAtomicMove(true).setReplaceExisting(true),promise);
+                    vertx.fileSystem().move(randomPath,path+"/data.db",new CopyOptions().setAtomicMove(true).setReplaceExisting(true),promise);
                 }else{
                     promise.fail(ar.cause());
                 }

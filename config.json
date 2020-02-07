@@ -18,7 +18,7 @@
   "tcp": {
     "host": "0.0.0.0",
     "port": 11883,
-    "ssl": true,
+    "ssl": false,
     "key_cert": [
       {
         "key_file": "/privkey.pem",
@@ -31,7 +31,7 @@
     "host": "0.0.0.0",
     "port": 18183,
     "path": "/mqtt",
-    "ssl": true,
+    "ssl": false,
     "key_cert": [
       {
         "key_file": "/privkey.pem",
@@ -41,7 +41,7 @@
   },
 
   "log_level": "info",
-  "log_dir": "/app/log",
+  "log_dir": "/log",
 
   "save_enable": true,
   "save_interval": 120,

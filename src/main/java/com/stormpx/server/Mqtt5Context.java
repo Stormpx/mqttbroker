@@ -215,7 +215,7 @@ public class Mqtt5Context extends AbstractMqttContext {
         if (connectAck)
             return this;
         ReasonCode code = ReasonCode.valueOf(reasonCode);
-        if (code.useful(ControlPacketType.CONNACK)){
+        if (!code.useful(ControlPacketType.CONNACK)){
             code=ReasonCode.IMPLEMENTATION_SPECIFIC_ERROR;
         }
         MqttConnAckPacket packet=new MqttConnAckPacket(FixedHeader.CONNACK,

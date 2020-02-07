@@ -18,6 +18,7 @@ import io.vertx.ext.web.client.WebClientOptions;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,25 +83,25 @@ public class HttpAuthenticator implements Authenticator {
             if (ar.succeeded()){
                 HttpResponse<Buffer> response = ar.result();
                 String contentType = response.headers().get(HttpHeaders.CONTENT_TYPE);
+                List<StringPair> userProperty=null;
+                if (contentType!=null&&contentType.contains("json")) {
+                    JsonObject json = response.bodyAsJsonObject();
+                    userProperty = getUserProperty(json);
+                }
+                AuthResult<Boolean> authResult=null;
                 if (response.statusCode()>=200&&response.statusCode()<300){
                     //success
-                    AuthResult<Boolean> authResult = AuthResult.create(true);
-
-                    if (contentType!=null&&contentType.contains("json")) {
-                        JsonObject json = response.bodyAsJsonObject();
-                        getUserProperty(json,authResult);
-                    }
-                    promise.complete(authResult);
+                    authResult = AuthResult.create(true);
                 }else if (response.statusCode()>=400&&response.statusCode()<500){
-                    AuthResult<Boolean> authResult = AuthResult.create(false);
-                    if (contentType!=null&&contentType.contains("json")) {
-                        JsonObject json = response.bodyAsJsonObject();
-                        getUserProperty(json,authResult);
-                    }
-                    promise.complete(authResult);
+                    authResult = AuthResult.create(false);
                 }else{
                     promise.fail(response.statusMessage());
+                    return;
                 }
+
+                authResult.setPairList(userProperty);
+
+                promise.complete(authResult);
             }else{
                 promise.fail(ar.cause());
             }
@@ -130,11 +131,13 @@ public class HttpAuthenticator implements Authenticator {
         List<JsonObject> list = mqttSubscriptions.stream()
                 .map(mqttSubscription -> new JsonObject()
                         .put("topic", mqttSubscription.getTopicFilter())
-                        .put("qos", mqttSubscription.getQos()))
+                        .put("qos", mqttSubscription.getQos().value()))
                 .collect(Collectors.toList());
         JsonObject params = new JsonObject();
+        if (userProperty!=null)
+            params.put("user_property",userProperty.stream().reduce(new JsonObject(),(j,stringPair)-> j.put(stringPair.getKey(),stringPair.getValue()),(q, w)->q));
         params.put("clientId",clientId);
-        params.put("topicFilter",list);
+        params.put("topicFilters",list);
         params.put("action","sub");
         if (appKey!=null)
             params.put("appkey",appKey);
@@ -144,16 +147,24 @@ public class HttpAuthenticator implements Authenticator {
             if (ar.succeeded()){
                 HttpResponse<Buffer> response = ar.result();
                 String contentType = response.headers().get(HttpHeaders.CONTENT_TYPE);
+
+                List<StringPair> respUserProperty=null;
+                Map<String,Integer> map=new HashMap<>();
+                if (contentType!=null&&contentType.contains("json")) {
+                    JsonObject json = response.bodyAsJsonObject();
+                    respUserProperty = getUserProperty(json);
+
+                    // topic array topic!=nul&&(qos==null||qos<0||qos>2)  mean not authorized
+                    JsonArray topic = json.getJsonArray("topicFilters");
+                    if (topic!=null) {
+                        J.toJsonStream(topic).forEach(j -> map.put(j.getString("topic"), j.getInteger("qos")));
+                    }
+                }
+
                 if (response.statusCode()>=200&&response.statusCode()<300){
                     //success
                     if (contentType!=null&&contentType.contains("json")) {
-                        JsonObject json = response.bodyAsJsonObject();
-                        // topic array topic!=nul&&(qos==null||qos<0||qos>2)  mean not authorized
-                        JsonArray topic = json.getJsonArray("topicFilters");
-                        Map<String,Integer> map=new HashMap<>();
-                        if (topic!=null) {
-                            J.toJsonStream(topic).forEach(j -> map.put(j.getString("topicFilter"), j.getInteger("qos")));
-                        }
+
                         List<ReasonCode> reasonCodes=mqttSubscriptions.stream().map(mqttSubscription -> {
                             if (!map.containsKey(mqttSubscription.getTopicFilter())){
                                 return ReasonCode.valueOf((byte) mqttSubscription.getQos().value());
@@ -161,10 +172,11 @@ public class HttpAuthenticator implements Authenticator {
                             Integer qos = map.get(mqttSubscription.getTopicFilter());
                             if (qos==null||qos<0||qos>2)
                                 return ReasonCode.NOT_AUTHORIZED;
+
                             return ReasonCode.valueOf(qos.byteValue());
+
                         }).collect(Collectors.toList());
-                        AuthResult<List<ReasonCode>> authResult = AuthResult.create(reasonCodes);
-                        getUserProperty(json,authResult);
+                        AuthResult<List<ReasonCode>> authResult = AuthResult.create(reasonCodes).setPairList(respUserProperty);
                         promise.complete(authResult);
                     }else{
                         promise.complete(AuthResult.create(mqttSubscriptions.stream().map(m->ReasonCode.valueOf((byte) m.getQos().value())).collect(Collectors.toList())));
@@ -172,10 +184,7 @@ public class HttpAuthenticator implements Authenticator {
 
                 }else if (response.statusCode()>=400&&response.statusCode()<500){
                     AuthResult<List<ReasonCode>> authResult = AuthResult.create(mqttSubscriptions.stream().map(m -> ReasonCode.NOT_AUTHORIZED).collect(Collectors.toList()));
-                    if (contentType!=null&&contentType.contains("json")) {
-                        JsonObject json = response.bodyAsJsonObject();
-                        getUserProperty(json,authResult);
-                    }
+                    authResult.setPairList(respUserProperty);
                     promise.complete(authResult);
                 }else{
                     promise.fail(response.statusMessage());
@@ -189,11 +198,12 @@ public class HttpAuthenticator implements Authenticator {
     }
 
 
-    private void getUserProperty(JsonObject json,AuthResult<?> authResult){
+    private List<StringPair> getUserProperty(JsonObject json){
         JsonObject userProperty = json.getJsonObject("user_property");
         if (userProperty != null) {
-            authResult.setPairList(userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList()));
+            return userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList());
         }
+        return null;
     }
 
 }
