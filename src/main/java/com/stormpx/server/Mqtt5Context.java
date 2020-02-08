@@ -8,6 +8,7 @@ import com.stormpx.mqtt.packet.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.vertx.core.Future;
+import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
 
@@ -39,24 +40,25 @@ public class Mqtt5Context extends AbstractMqttContext {
                 new MqttPublishMessage(publishPacket.getTopicName(), fixedHeader.getQosAsEnum(), fixedHeader.isRetain(), fixedHeader.isDup(),
                         Buffer.buffer(publishPacket.getPayload()), publishPacket.getPacketIdentifier());
 
+        UnalteredProperties unalteredProperties = new UnalteredProperties();
 
         for (Iterator<MqttProperties> iterator = publishPacket.getProperties().iterator(); iterator.hasNext(); ) {
             MqttProperties properties = iterator.next();
             switch (properties.getProperty()) {
                 case PAYLOAD_FORMAT_INDICATOR:
-                    mqttPublishMessage.setPayloadFormatIndicator((byte) properties.getValue() == 1);
+                    unalteredProperties.setPayloadFormatIndicator((byte) properties.getValue() == 1);
                     break;
                 case RESPONSE_TOPIC:
-                    mqttPublishMessage.setResponseTopic((String) properties.getValue());
+                    unalteredProperties.setResponseTopic((String) properties.getValue());
                     break;
                 case CORRELATION_DATA:
-                    mqttPublishMessage.setCorrelationData(Buffer.buffer((ByteBuf) properties.getValue()));
+                    unalteredProperties.setCorrelationData(Buffer.buffer((ByteBuf) properties.getValue()));
                     break;
                 case USER_PROPERTY:
-                    mqttPublishMessage.addUserProperty((StringPair) properties.getValue());
+                    unalteredProperties.addUserProperty((StringPair) properties.getValue());
                     break;
                 case CONTENT_TYPE:
-                    mqttPublishMessage.setContentType((String) properties.getValue());
+                    unalteredProperties.setContentType((String) properties.getValue());
                     break;
                 case SUBSCRIPTION_IDENTIFIER:
                     throw new ProtocolErrorException("client sent to server must not contain a subscription identifier");
@@ -82,10 +84,10 @@ public class Mqtt5Context extends AbstractMqttContext {
                     break;
             }
         }
-        mqttPublishMessage.setExpiryTimestamp(Instant.now().getEpochSecond()+mqttPublishMessage.getMessageExpiryInterval());
-
-
-        if (publishHandler!=null) {
+//        mqttPublishMessage.setExpiryTimestamp(Instant.now().getEpochSecond()+mqttPublishMessage.getMessageExpiryInterval());
+        mqttPublishMessage.setUnalteredProperties(unalteredProperties);
+        Handler<MqttPublishMessage> publishHandler = this.publishHandler;
+        if (publishHandler !=null) {
             publishHandler.handle(mqttPublishMessage);
         }
     }

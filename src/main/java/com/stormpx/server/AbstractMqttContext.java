@@ -83,7 +83,7 @@ public abstract class AbstractMqttContext implements MqttContext {
                         mqttSessionOption.setSessionExpiryInterval((Long) properties.getValue());
                         break;
                     case RECEIVE_MAXIMUM:
-                        mqttSessionOption.setReceiveMaximum((Integer) properties.getValue());
+                        mqttSessionOption.setEndPointReceiveMaximum((Integer) properties.getValue());
                         break;
                     case MAXIMUM_PACKET_SIZE:
                         mqttSessionOption.setEndPointMaximumPacketSize((Long) properties.getValue());
@@ -595,7 +595,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     private void writeNext(){
         if (writeQueue.isEmpty()||isClose())
             return;
-        if (inFlightMap.size()>= mqttSessionOption.getReceiveMaximum())
+        if (inFlightMap.size()>= mqttSessionOption.getEndPointReceiveMaximum())
             return;
 
         MqttInFlightMessage inFlightMessage = writeQueue.poll();

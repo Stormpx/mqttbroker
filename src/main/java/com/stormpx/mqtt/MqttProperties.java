@@ -15,7 +15,31 @@ public class MqttProperties {
         this.property = property;
         this.value = value;
     }
+    public MqttProperties(MqttProperty property,String value) {
+        this.property = property;
+        this.value=value;
+    }
 
+    public MqttProperties(MqttProperty property,Integer value) {
+        this.property = property;
+        this.value=value;
+    }
+    public MqttProperties(MqttProperty property,Long value) {
+        this.property = property;
+        this.value=value;
+    }
+    public MqttProperties(MqttProperty property,byte value) {
+        this.property = property;
+        this.value=value;
+    }
+    public MqttProperties(MqttProperty property,StringPair value) {
+        this.property = property;
+        this.value=value;
+    }
+    public MqttProperties(MqttProperty property,ByteBuf value) {
+        this.property = property;
+        this.value=value;
+    }
 
     public MqttProperty getProperty() {
         return property;
@@ -51,19 +75,26 @@ public class MqttProperties {
         MqttProperty mqttProperty = MqttProperty.valueOf(property.byteValue());
         Object value=null;
         if (mqttProperty.isBinaryData()){
+
             byte[] values = json.getBinary("value");
             if (values!=null)
                 value= Unpooled.wrappedBuffer(values);
+
         }else if (mqttProperty.isStringPair()){
+
             String key = json.getString("key");
             String v = json.getString("value");
             if (key==null||v==null)
                 throw new NullPointerException("string pair is null");
+            value=new StringPair(key,v);
+
         }else if (mqttProperty.isByte()){
+
             Integer i = json.getInteger("value");
             if (i==null)
                 throw new NullPointerException("value is null");
-            value=json.getInteger("value").byteValue();
+            value=i.byteValue();
+
         }else if (mqttProperty.isString()){
             value=json.getString("value");
         }else if (mqttProperty.isFourByteInteger()){

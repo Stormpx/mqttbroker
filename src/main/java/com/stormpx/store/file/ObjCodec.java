@@ -23,7 +23,12 @@ public class ObjCodec {
         int topicBytesLength = byteBuf.readUnsignedShort();
         ByteBuf topicBytes = byteBuf.readBytes(topicBytesLength);
         byte qosAndRetain = byteBuf.readByte();
-        long expiryTimestamp = byteBuf.readLong();
+        byte expiryTimestampFlag = byteBuf.readByte();
+        Long expiryTimestamp=null;
+        if (expiryTimestampFlag!=0){
+             expiryTimestamp= byteBuf.readLong();
+        }
+
         int payloadLength = byteBuf.readInt();
         ByteBuf payload = byteBuf.readBytes(payloadLength);
         JsonArray jsonArray = new JsonArray();
@@ -37,7 +42,9 @@ public class ObjCodec {
         json.put("qos",qosAndRetain>>1);
         boolean retain = (qosAndRetain&1)==1;
         json.put("retain", retain);
-        json.put("expiryTimestamp",expiryTimestamp);
+        if (expiryTimestampFlag!=0) {
+            json.put("expiryTimestamp", expiryTimestamp);
+        }
         json.put("payload",Buffer.buffer(payload).getBytes());
         json.put("properties",jsonArray);
         MessageObj messageObj = new MessageObj(json);
@@ -81,7 +88,12 @@ public class ObjCodec {
         buffer.appendUnsignedShort(topicBytes.length)
                 .appendBytes(topicBytes);
         buffer.appendByte(qosARetain);
-        buffer.appendLong(expiryTimestamp);
+        if (expiryTimestamp!=null){
+            buffer.appendByte((byte) 1);
+            buffer.appendLong(expiryTimestamp);
+        }else {
+            buffer.appendByte((byte) 0);
+        }
         buffer.appendInt(payloads.length)
                 .appendBytes(payloads);
 

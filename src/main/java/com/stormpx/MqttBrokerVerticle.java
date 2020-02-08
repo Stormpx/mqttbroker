@@ -43,7 +43,6 @@ import java.util.stream.Collectors;
 import static com.stormpx.Constants.*;
 
 public class MqttBrokerVerticle extends AbstractVerticle {
-    private final static Logger errLogger=LoggerFactory.getLogger("err");
     private final static Logger logger= LoggerFactory.getLogger("mqttBroker");
 
     private MqttServer mqttServer;
@@ -189,7 +188,11 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                     if (timeoutStream!=null)
                         timeoutStream.cancel();
 
-                    if (mqttContext !=null&&!mqttContext.id().equals(id)){
+                    if (mqttContext !=null){
+                        if (id!=null){
+                            if (mqttContext.id().equals(id))
+                                return;
+                        }
                         mqttServer.holder().remove(clientId);
                         mqttContext.takenOver(sessionEnd);
                     }
@@ -197,7 +200,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
 
 
-        mqttServer.exceptionHandler(t->errLogger.error("",t))
+        mqttServer.exceptionHandler(t->logger.error("",t))
                 .handler(mqttContext->{
                     logger.debug("client:{} try connect",mqttContext.session().clientIdentifier());
                     mqttContext.exceptionHandler(t->{
@@ -460,14 +463,21 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                             AuthResult<Boolean> authResult = aar.result();
                             List<StringPair> userProperty = authResult.getPairList();
                             if (authResult.getObject()){
-                                Long maxMessageExpiryInterval = mqttConfig.getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL);
-                                if (maxMessageExpiryInterval!=null&&maxMessageExpiryInterval<message.getMessageExpiryInterval()) {
-                                    message.setExpiryTimestamp(Instant.now().getEpochSecond()+maxMessageExpiryInterval);
-                                }
                                 handlePublishMessage(clientId,message)
                                         .setHandler(ar->{
                                             if (ar.succeeded()){
                                                 JsonObject result = ar.result();
+
+                                                //set min expiryTimestamp
+                                                Long messageExpiryInterval = mqttConfig.getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL);
+                                                if (messageExpiryInterval == null || (message.getMessageExpiryInterval() != null && messageExpiryInterval >= message.getMessageExpiryInterval())) {
+                                                    messageExpiryInterval=message.getMessageExpiryInterval();
+                                                }
+                                                if (messageExpiryInterval !=null){
+                                                    result.put("expiryTimestamp",Instant.now().getEpochSecond()+messageExpiryInterval);
+                                                }
+
+
                                                 if (result!=null){
                                                     if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
                                                         mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
@@ -477,6 +487,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                                     //dispatcher
                                                     dispatcherEvent(result);
                                                 }
+
                                             }else{
                                                 logger.info("handle clientId :{} publish message fail",clientId);
                                                 mqttContext.handleException(ar.cause());
