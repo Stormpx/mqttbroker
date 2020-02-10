@@ -14,6 +14,7 @@ import io.vertx.core.buffer.Buffer;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class Mqtt5Context extends AbstractMqttContext {
 
@@ -27,8 +28,7 @@ public class Mqtt5Context extends AbstractMqttContext {
         this.aliasToTopicMap=new HashMap<>();
     }
 
-    @Override
-    protected void handlePublish(MqttPublishPacket publishPacket) {
+    protected MqttPublishMessage getPublishMessage(MqttPublishPacket publishPacket){
         FixedHeader fixedHeader = publishPacket.fixedHeader();
         if (fixedHeader.isRetain()&&!mqttSessionOption.isRetainAvailable()) {
             throw new RetainNotSupportedException("retain not support");
@@ -84,12 +84,9 @@ public class Mqtt5Context extends AbstractMqttContext {
                     break;
             }
         }
-//        mqttPublishMessage.setExpiryTimestamp(Instant.now().getEpochSecond()+mqttPublishMessage.getMessageExpiryInterval());
+        //        mqttPublishMessage.setExpiryTimestamp(Instant.now().getEpochSecond()+mqttPublishMessage.getMessageExpiryInterval());
         mqttPublishMessage.setUnalteredProperties(unalteredProperties);
-        Handler<MqttPublishMessage> publishHandler = this.publishHandler;
-        if (publishHandler !=null) {
-            publishHandler.handle(mqttPublishMessage);
-        }
+        return mqttPublishMessage;
     }
 
     @Override
@@ -108,6 +105,11 @@ public class Mqtt5Context extends AbstractMqttContext {
 
     @Override
     protected void handleSubscribe(MqttSubscribePacket subscribePacket) {
+        if (mqttSession.containsPacketId(subscribePacket.getPacketIdentifier())){
+            subscribeAcknowledge(subscribePacket.getPacketIdentifier(),subscribePacket.getSubscriptions().stream().map(s->ReasonCode.PACKET_IDENTIFIER_IN_USE).collect(Collectors.toList()),null,null);
+            return;
+        }
+
         int subId = 0;
         List<StringPair> list = new ArrayList<>();
 
@@ -135,6 +137,11 @@ public class Mqtt5Context extends AbstractMqttContext {
 
     @Override
     protected void handleUnSubscribe(MqttUnSubscribePacket unSubscribePacket) {
+        if (mqttSession.containsPacketId(unSubscribePacket.getPacketIdentifier())){
+            subscribeAcknowledge(unSubscribePacket.getPacketIdentifier(),unSubscribePacket.getSubscriptions().stream().map(s->ReasonCode.PACKET_IDENTIFIER_IN_USE).collect(Collectors.toList()),null,null);
+            return;
+        }
+
         List<StringPair> list=new ArrayList<>();
         for (MqttProperties properties : unSubscribePacket.getProperties()) {
             switch (properties.getProperty()){

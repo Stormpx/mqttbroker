@@ -127,13 +127,13 @@ public class SessionStore {
         return this;
     }
 
-    public boolean containsPacketId(String clientId,Integer packetId) {
+    public List<Integer> getPacketIdSet(String clientId){
         SessionObj session = getSession(clientId);
-        Set<Integer> idSet = session.getPacketIdSet();
-        if (idSet==null)
-            return false;
-        return idSet.contains(packetId);
+        if (session==null)
+            return Collections.emptyList();
+        return new ArrayList<>(session.getPacketIdSet());
     }
+
     public SessionStore removePacketId(String clientId,Integer packetId) {
         SessionObj session = getSession(clientId);
         session.getPacketIdSet().remove(packetId);

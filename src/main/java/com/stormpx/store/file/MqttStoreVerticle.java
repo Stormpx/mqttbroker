@@ -102,8 +102,8 @@ public class MqttStoreVerticle extends AbstractVerticle {
                             case "addPacketId":
                                 addPacketId((JsonObject)body);
                                 break;
-                            case "containsPacketId":
-                                message.reply(containsPacketId((JsonObject)body));
+                            case "unacknowledgedPacketId":
+                                message.reply(unacknowledgedPacketId((JsonObject)body));
                                 break;
                             case "removePacketId":
                                 removePacketId((JsonObject)body);
@@ -461,10 +461,9 @@ public class MqttStoreVerticle extends AbstractVerticle {
         sessionStore.addPacketId(clientId,packetId);
     }
 
-    private boolean containsPacketId(JsonObject body) {
+    private JsonArray unacknowledgedPacketId(JsonObject body) {
         String clientId = body.getString("clientId");
-        Integer packetId = body.getInteger("packetId");
-        return sessionStore.containsPacketId(clientId,packetId);
+        return new JsonArray(sessionStore.getPacketIdSet(clientId));
     }
     private void removePacketId(JsonObject body) {
         String clientId = body.getString("clientId");

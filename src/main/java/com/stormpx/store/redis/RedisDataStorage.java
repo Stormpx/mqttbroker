@@ -88,9 +88,10 @@ public class RedisDataStorage implements DataStorage {
     }
 
     @Override
-    public Future<Boolean> containsPacketId(String clientId, int packetId) {
+    public Future<List<Integer>> unacknowledgedPacketId(String clientId) {
         return null;
     }
+
 
     @Override
     public void removePacketId(String clientId, int packetId) {

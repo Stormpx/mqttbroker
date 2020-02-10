@@ -5,6 +5,7 @@ import io.netty.handler.codec.mqtt.MqttQoS;
 public class MqttSessionOption {
     private long sessionExpiryInterval;
     private int endPointReceiveMaximum;
+    private int receiveMaximum;
     private long endPointMaximumPacketSize;
     private long maximumPacketSize;
     private int endPointTopicAliasMaximum;
@@ -16,6 +17,7 @@ public class MqttSessionOption {
     public MqttSessionOption() {
         this.sessionExpiryInterval=0;
         this.endPointReceiveMaximum =65535;
+        this.receiveMaximum=65535;
         this.endPointMaximumPacketSize =268435455;
         this.maximumPacketSize=268435455;
         this.topicAliasMaximum=0;
@@ -109,6 +111,15 @@ public class MqttSessionOption {
 
     public MqttSessionOption setMaxQos(MqttQoS maxQos) {
         this.maxQos = maxQos;
+        return this;
+    }
+
+    public int getReceiveMaximum() {
+        return receiveMaximum;
+    }
+
+    public MqttSessionOption setReceiveMaximum(int receiveMaximum) {
+        this.receiveMaximum = receiveMaximum;
         return this;
     }
 }

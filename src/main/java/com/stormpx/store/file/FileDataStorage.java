@@ -15,9 +15,11 @@ import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 public class FileDataStorage implements DataStorage {
     private final static String SOTRE_ADDRESS="_mqtt_store_";
@@ -169,14 +171,20 @@ public class FileDataStorage implements DataStorage {
         vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
     }
 
+
     @Override
-    public Future<Boolean> containsPacketId(String clientId, int packetId) {
-        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "containsPacketId");
-        Promise<Boolean> promise=Promise.promise();
-        vertx.eventBus().<Boolean>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions,ar->{
+    public Future<List<Integer>> unacknowledgedPacketId(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "unacknowledgedPacketId");
+        Promise<List<Integer>> promise=Promise.promise();
+        vertx.eventBus().<JsonArray>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
             if (ar.succeeded()){
-                Message<Boolean> message = ar.result();
-                promise.complete(message.body()==null?false:message.body());
+                Message<JsonArray> result = ar.result();
+                JsonArray body = result.body();
+                if (body==null){
+                    promise.complete(Collections.emptyList());
+                }else {
+                    promise.complete(body.stream().filter(o->o instanceof Integer).map(o->(Integer)o).collect(Collectors.toList()));
+                }
             }else{
                 promise.fail(ar.cause());
             }

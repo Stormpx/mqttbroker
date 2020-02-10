@@ -3,7 +3,6 @@ package com.stormpx;
 import com.stormpx.auth.AuthResult;
 import com.stormpx.auth.Authenticator;
 import com.stormpx.message.MqttBrokerMessage;
-import com.stormpx.message.MqttPublishMessage;
 import com.stormpx.message.MqttSubscribeMessage;
 import com.stormpx.message.MqttWill;
 import com.stormpx.ex.SharedSubscriptionsNotSupportedException;
@@ -22,10 +21,7 @@ import com.stormpx.store.DataStorage;
 import com.stormpx.store.TimeoutWill;
 import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
 import io.netty.handler.codec.mqtt.MqttQoS;
-import io.vertx.core.AbstractVerticle;
-import io.vertx.core.Future;
-import io.vertx.core.Promise;
-import io.vertx.core.TimeoutStream;
+import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.json.JsonArray;
@@ -336,7 +332,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             sharedSubscriptionAvailable=true;
 
         if (wildcard&&subscriptionIdentifierAvailable&&sharedSubscriptionAvailable)
-            return;
+            return ;
 
         if (!subscriptionIdentifierAvailable&&message.getSubscriptionIdentifier()!=0)
             throw new SubscriptionIdNotSupportedException("subscription identifier not supported");
@@ -364,83 +360,91 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             TimeoutStream updateSessionExpiryStream;
         };
         mqttContext.subscribeHandler(message->{
-            verifySubscribe(message);
-            List<MqttSubscription> mqttSubscriptions = message.getMqttSubscriptions();
-            //auth
-            authenticator.authorizeSub(mqttContext.session().clientIdentifier(),mqttSubscriptions,message.getUserProperty())
-                .setHandler(ar->{
-                    if (ar.succeeded()){
-                        try {
-                            AuthResult<List<ReasonCode>> authResult = ar.result();
-                            List<ReasonCode> reasonCodes = authResult.getObject();
-                            List<String> topic=new ArrayList<>();
-                            List<MqttSubscription> subscriptions=new ArrayList<>();
-                            int i=0;
-                            for (ReasonCode reasonCode : reasonCodes) {
-                                MqttSubscription mqttSubscription = mqttSubscriptions.get(i++);
-                                if (reasonCode.byteValue()>=0x03) {
-                                    logger.debug("client:{} subscribe topic:{} qos:{} fail reason:{}",
-                                            mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos(),reasonCode.name().toLowerCase());
-                                    continue;
-                                }
-                                switch (mqttSubscription.getRetainHandling()) {
-                                    case SEND_MESSAGES_AT_THE_TIME:
-                                        topic.add(mqttSubscription.getTopicFilter());
-                                        break;
-                                    case NOT_EXIST_SEND_MESSAGES_AT_THE_TIME:
-                                        if (topicFilter.subscribed(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier())) {
+            try {
+                verifySubscribe(message);
+                List<MqttSubscription> mqttSubscriptions = message.getMqttSubscriptions();
+                //auth
+                authenticator.authorizeSub(mqttContext.session().clientIdentifier(),mqttSubscriptions,message.getUserProperty())
+                    .setHandler(ar->{
+                        if (ar.succeeded()){
+                            try {
+                                AuthResult<List<ReasonCode>> authResult = ar.result();
+                                List<ReasonCode> reasonCodes = authResult.getObject();
+                                List<String> topic=new ArrayList<>();
+                                List<MqttSubscription> subscriptions=new ArrayList<>();
+                                int i=0;
+                                for (ReasonCode reasonCode : reasonCodes) {
+                                    MqttSubscription mqttSubscription = mqttSubscriptions.get(i++);
+                                    if (reasonCode.byteValue()>=0x03) {
+                                        logger.debug("client:{} subscribe topic:{} qos:{} fail reason:{}",
+                                                mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos(),reasonCode.name().toLowerCase());
+                                        continue;
+                                    }
+                                    switch (mqttSubscription.getRetainHandling()) {
+                                        case SEND_MESSAGES_AT_THE_TIME:
                                             topic.add(mqttSubscription.getTopicFilter());
-                                        }
-                                        break;
-                                }
-                                MqttQoS mqttQoS = MqttQoS.valueOf(reasonCode.byteValue());
-                                mqttSubscription.setQos(mqttQoS);
-                                subscriptions.add(mqttSubscription);
-                                logger.debug("client:{} subscribe topic:{} qos:{} success",
-                                        mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos());
-                                topicFilter.subscribe(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier(), mqttQoS, mqttSubscription.isNoLocal(), mqttSubscription.isRetainAsPublished(), message.getSubscriptionIdentifier());
-                            }
-                            //get retain message
-                            if (!topic.isEmpty()){
-                                dataStorage.filterMatchMessage(topic)
-                                        .setHandler(r->{
-                                            if (r.failed()){
-                                                logger.info("client:{} filterMatchMessage fail ",mqttContext.session().clientIdentifier());
-                                                mqttContext.handleException(r.cause());
-                                                return;
+                                            break;
+                                        case NOT_EXIST_SEND_MESSAGES_AT_THE_TIME:
+                                            if (topicFilter.subscribed(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier())) {
+                                                topic.add(mqttSubscription.getTopicFilter());
                                             }
-                                            JsonArray result = r.result();
-                                            J.toJsonStream(result)
-                                                    .forEach(jsonObject -> {
-                                                        mqttSubscriptions.stream()
-                                                                .filter(mqttSubscription->TopicUtil.matches(mqttSubscription.getTopicFilter(), jsonObject.getString("topic")))
-                                                                .max(Comparator.comparingInt(m -> m.getQos().value()))
-                                                                .ifPresent(mqttSubscription -> {
-                                                                    if (message.getSubscriptionIdentifier()!=0)
-                                                                        jsonObject.put("subscriptionId",Collections.singletonList(message.getSubscriptionIdentifier()));
+                                            break;
+                                    }
+                                    MqttQoS mqttQoS = MqttQoS.valueOf(reasonCode.byteValue());
+                                    mqttSubscription.setQos(mqttQoS);
+                                    subscriptions.add(mqttSubscription);
+                                    logger.debug("client:{} subscribe topic:{} qos:{} success",
+                                            mqttContext.session().clientIdentifier(),mqttSubscription.getTopicFilter(),mqttSubscription.getQos());
+                                    topicFilter.subscribe(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier(), mqttQoS, mqttSubscription.isNoLocal(), mqttSubscription.isRetainAsPublished(), message.getSubscriptionIdentifier());
+                                }
+                                //get retain message
+                                if (!topic.isEmpty()){
+                                    dataStorage.filterMatchMessage(topic)
+                                            .setHandler(r->{
+                                                if (r.failed()){
+                                                    logger.info("client:{} filterMatchMessage fail ",mqttContext.session().clientIdentifier());
+                                                    mqttContext.handleException(r.cause());
+                                                    return;
+                                                }
+                                                JsonArray result = r.result();
+                                                J.toJsonStream(result)
+                                                        .forEach(jsonObject -> {
+                                                            mqttSubscriptions.stream()
+                                                                    .filter(mqttSubscription->TopicUtil.matches(mqttSubscription.getTopicFilter(), jsonObject.getString("topic")))
+                                                                    .max(Comparator.comparingInt(m -> m.getQos().value()))
+                                                                    .ifPresent(mqttSubscription -> {
+                                                                        if (message.getSubscriptionIdentifier()!=0)
+                                                                            jsonObject.put("subscriptionId",Collections.singletonList(message.getSubscriptionIdentifier()));
 
-                                                                    jsonObject.put("qos",Math.min(mqttSubscription.getQos().value(),jsonObject.getInteger("qos")));
-                                                                    jsonObject.put("retain",true);
-                                                                    sendToClient(mqttContext,jsonObject);
-                                                                });
-                                                    });
-                                        });
+                                                                        jsonObject.put("qos",Math.min(mqttSubscription.getQos().value(),jsonObject.getInteger("qos")));
+                                                                        jsonObject.put("retain",true);
+                                                                        sendToClient(mqttContext,jsonObject);
+                                                                    });
+                                                        });
+                                            });
+                                }
+                                //store subscribe
+                                if (!subscriptions.isEmpty()) {
+                                    dataStorage.storeSubscription(mqttContext.session().clientIdentifier(),subscriptions,message.getSubscriptionIdentifier());
+                                }
+                                //ack
+                                mqttContext.subscribeAcknowledge(message.getPacketIdentifier(),reasonCodes,authResult.getPairList(),null);
+                            } catch (Exception e) {
+                                mqttContext.handleException(e);
                             }
-                            //store subscribe
-                            if (!subscriptions.isEmpty()) {
-                                dataStorage.storeSubscription(mqttContext.session().clientIdentifier(),subscriptions,message.getSubscriptionIdentifier());
-                            }
-                            //ack
-                            mqttContext.subscribeAcknowledge(message.getPacketIdentifier(),reasonCodes,authResult.getPairList(),null);
-                        } catch (Exception e) {
-                            mqttContext.handleException(e);
+
+                        }else{
+                            logger.info("client:{} authorize subscribe fail", mqttContext.session().clientIdentifier());
+                            mqttContext.handleException(ar.cause());
                         }
-
-                    }else{
-                        logger.info("client:{} authorize subscribe fail", mqttContext.session().clientIdentifier());
-                        mqttContext.handleException(ar.cause());
-                    }
-                });
+                    });
+            } catch (SubscriptionIdNotSupportedException e) {
+                mqttContext.subscribeAcknowledge(message.getPacketIdentifier(),message.getMqttSubscriptions().stream().map(s->ReasonCode.SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED).collect(Collectors.toList()), null,null);
+            }catch (WildcardSubscriptionsNotSupportedException e) {
+                mqttContext.subscribeAcknowledge(message.getPacketIdentifier(),message.getMqttSubscriptions().stream().map(s->ReasonCode.WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED).collect(Collectors.toList()), null,null);
+            }catch (SharedSubscriptionsNotSupportedException e) {
+                mqttContext.subscribeAcknowledge(message.getPacketIdentifier(),message.getMqttSubscriptions().stream().map(s->ReasonCode.SHARED_SUBSCRIPTIONS_NOT_SUPPORTED).collect(Collectors.toList()), null,null);
+            }
         }).unSubscribeHandler(message->{
             List<String> mqttSubscriptions = message.getMqttSubscriptions();
             String clientId = mqttContext.session().clientIdentifier();
@@ -456,45 +460,47 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             mqttContext.unSubscribeAcknowledge(message.getPacketIdentifier(),reasonCodes,null,null);
         }).publishHandler(message->{
             // auth
+            boolean isQos0=message.getQos()==MqttQoS.AT_MOST_ONCE;
             String clientId = mqttContext.session().clientIdentifier();
+            if (!isQos0)
+                dataStorage.addPacketId(clientId, message.getPacketId());
+
             authenticator.authorizePub(clientId,message.getTopic())
                     .setHandler(aar->{
                         if (aar.succeeded()){
                             AuthResult<Boolean> authResult = aar.result();
                             List<StringPair> userProperty = authResult.getPairList();
                             if (authResult.getObject()){
-                                handlePublishMessage(clientId,message)
-                                        .setHandler(ar->{
-                                            if (ar.succeeded()){
-                                                JsonObject result = ar.result();
+                                logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}",clientId,message.getTopic(),message.getQos().value(),message.isRetain());
+                                JsonObject result = message.toJson().put("clientId", clientId);
+                                if (!isQos0){
+                                    String id = UUID.randomUUID().toString().replaceAll("-", "");
+                                    result.put("id",id);
+                                }
 
-                                                //set min expiryTimestamp
-                                                Long messageExpiryInterval = mqttConfig.getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL);
-                                                if (messageExpiryInterval == null || (message.getMessageExpiryInterval() != null && messageExpiryInterval >= message.getMessageExpiryInterval())) {
-                                                    messageExpiryInterval=message.getMessageExpiryInterval();
-                                                }
-                                                if (messageExpiryInterval !=null){
-                                                    result.put("expiryTimestamp",Instant.now().getEpochSecond()+messageExpiryInterval);
-                                                }
+                                //set min expiryTimestamp
+                                Long messageExpiryInterval = mqttConfig.getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL);
+                                if (messageExpiryInterval == null || (message.getMessageExpiryInterval() != null && messageExpiryInterval >= message.getMessageExpiryInterval())) {
+                                    messageExpiryInterval=message.getMessageExpiryInterval();
+                                }
+                                if (messageExpiryInterval !=null){
+                                    result.put("expiryTimestamp",Instant.now().getEpochSecond()+messageExpiryInterval);
+                                }
 
+                                if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
+                                    mqttContext.session().removePacketId(message.getPacketId());
+                                    dataStorage.removePacketId(mqttContext.session().clientIdentifier(),message.getPacketId());
+                                    mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
+                                }else if (message.getQos()==MqttQoS.EXACTLY_ONCE){
+                                    mqttContext.publishReceived(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
+                                }
+                                //dispatcher
+                                dispatcherEvent(result);
 
-                                                if (result!=null){
-                                                    if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
-                                                        mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
-                                                    }else if (message.getQos()==MqttQoS.EXACTLY_ONCE){
-                                                        mqttContext.publishReceived(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
-                                                    }
-                                                    //dispatcher
-                                                    dispatcherEvent(result);
-                                                }
-
-                                            }else{
-                                                logger.info("handle clientId :{} publish message fail",clientId);
-                                                mqttContext.handleException(ar.cause());
-                                            }
-                                        });
                             }else{
                                 if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
+                                    mqttContext.session().removePacketId(message.getPacketId());
+                                    dataStorage.removePacketId(mqttContext.session().clientIdentifier(),message.getPacketId());
                                     mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.NOT_AUTHORIZED,userProperty,null);
                                 }else if (message.getQos()==MqttQoS.EXACTLY_ONCE){
                                     mqttContext.publishReceived(message.getPacketId(),ReasonCode.NOT_AUTHORIZED,userProperty,null);
@@ -508,7 +514,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
         }).publishReleaseHandler(id->{
             dataStorage.removePacketId(mqttContext.session().clientIdentifier(),id);
-            mqttContext.publishComplete(id,ReasonCode.SUCCESS,null,null);
+//            mqttContext.publishComplete(id,ReasonCode.SUCCESS,null,null);
         }).publishAcknowledgeHandler(id->{
             dataStorage.release(mqttContext.session().clientIdentifier(),id);
         }).publishReceiveHandler(id->{
@@ -583,39 +589,23 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
         String clientId = mqttContext.session().clientIdentifier();
         handleCleanSession(mqttContext)
-            .setHandler(ar->{
-              if (ar.succeeded()){
-                  boolean sessionPresent = ar.result();
-                  takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
-                  if (sessionPresent){
-                      subscribeByClientId(mqttContext,clientId);
-                      writeUnFinishMessage(mqttContext,clientId);
-                      dataStorage.deleteTimeoutWill(clientId);
-                  }else{
-                      //session expiry
-                      topicFilter.clearSubscribe(clientId);
-                      dataStorage.clearSession(clientId);
-                  }
-                  if (mqttContext.sessionExpiryInterval()>1) {
-                    ref.updateSessionExpiryStream=vertx.periodicStream((mqttContext.sessionExpiryInterval()-1)*1000)
-                            .handler(id->dataStorage.storeSessionState(new SessionState(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval())));
-                  }
-                  mqttServer.holder().add(mqttContext);
-                  logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
-                  mqttContext.accept(sessionPresent);
-              }else{
-                  logger.error("client:"+clientId+" fetch session fail :{}",ar.cause().getMessage());
-                  mqttContext.handleException(ar.cause());
-              }
-            });
+                .onFailure(t->{
+                    logger.error("client:"+clientId+" fetch session fail :{}",t.getMessage());
+                    mqttContext.handleException(t);
+                })
+                .compose(b-> handleSessionPresent(mqttContext,b))
+                .onSuccess(b->{
+                    if (mqttContext.sessionExpiryInterval()>1) {
+                        ref.updateSessionExpiryStream=vertx.periodicStream((mqttContext.sessionExpiryInterval()-1)*1000)
+                                .handler(id->dataStorage.storeSessionState(new SessionState(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval())));
+                    }
+                    mqttServer.holder().add(mqttContext);
+                    logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
+                    mqttContext.accept(b);
+                });
     }
 
-    /**
-     *
-     * @param clientId
-     * @param message
-     * @return
-     */
+   /*
     private Future<JsonObject> handlePublishMessage(String clientId,MqttPublishMessage message){
         Promise<Boolean> promise=Promise.promise();
         logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}",clientId,message.getTopic(),message.getQos().value(),message.isRetain());
@@ -649,6 +639,21 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 return Future.succeededFuture(null);
             }
         });
+    }*/
+
+    private Future<Boolean> handleSessionPresent(MqttContext mqttContext, boolean sessionPresent){
+        String clientId = mqttContext.session().clientIdentifier();
+        takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
+        if (sessionPresent){
+            return CompositeFuture.all(subscribeByClientId(mqttContext),writeUnFinishMessage(mqttContext),addUnacknowledgedPacketId(mqttContext))
+                    .map(true);
+
+        }else {
+            //session expiry
+            topicFilter.clearSubscribe(clientId);
+            dataStorage.clearSession(clientId);
+            return Future.succeededFuture(false);
+        }
     }
 
     private Future<Boolean> handleCleanSession(MqttContext mqttContext){
@@ -841,8 +846,9 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     }
 
-    private void subscribeByClientId(MqttContext mqttContext,String clientId){
-        dataStorage.fetchSubscription(clientId)
+    private Future<Void> subscribeByClientId(MqttContext mqttContext){
+        String clientId = mqttContext.session().clientIdentifier();
+        return dataStorage.fetchSubscription(clientId)
                 .setHandler(ar->{
                    if (ar.succeeded()){
                        JsonArray array = ar.result();
@@ -860,11 +866,12 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                        logger.info("fetch subscription fail :{}",ar.cause().getMessage());
                        mqttContext.handleException(ar.cause());
                    }
-                });
+                })
+                .map((Void)null);
     }
 
-    private void writeUnFinishMessage(MqttContext mqttContext, String clientId){
-        dataStorage.fetchUnReleaseMessage(clientId).setHandler(ar -> {
+    private Future<Void> writeUnFinishMessage(MqttContext mqttContext){
+        return dataStorage.fetchUnReleaseMessage(mqttContext.session().clientIdentifier()).setHandler(ar -> {
             if (ar.succeeded()){
                 JsonArray array = ar.result();
                 array.stream()
@@ -885,7 +892,21 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 logger.info("fetch unFinish message fail:{} ",ar.cause().getMessage());
                 mqttContext.handleException(ar.cause());
             }
-        });
+        }).map((Void)null);
+    }
+
+    private Future<Void> addUnacknowledgedPacketId(MqttContext mqttContext){
+        return dataStorage.unacknowledgedPacketId(mqttContext.session().clientIdentifier())
+                .setHandler(ar->{
+                   if (ar.succeeded()){
+                       List<Integer> list = ar.result();
+                       if (list!=null)
+                           list.forEach(mqttContext.session()::addPacketId);
+                   }else{
+                       logger.info("fetch unacknowledged packetId fail:{} ",ar.cause().getMessage());
+                       mqttContext.handleException(ar.cause());
+                   }
+                }).map((Void)null);
     }
 
 

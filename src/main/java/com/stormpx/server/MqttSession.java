@@ -15,9 +15,17 @@ public interface MqttSession {
 
     int nextMessageId();
 
-    void use(int packetId);
+    void send(int packetId);
 
     void release(int packetId);
+
+    void addPacketId(int packetId);
+
+    boolean containsPacketId(int packetId);
+
+    void removePacketId(int packetId);
+
+    int endPointUsedQuota();
 
     long expiryTime();
 

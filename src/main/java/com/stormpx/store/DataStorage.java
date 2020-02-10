@@ -54,13 +54,13 @@ public interface DataStorage {
     void addPendingId(String clientId,String id);
 
     /**
-     * use on publish message
+     * send on publish message
      * @param messageLink
      */
     void link(MessageLink messageLink);
 
     /**
-     * use on publish message
+     * send on publish message
      * release packetId
      * @param clientId
      * @param packetId
@@ -68,7 +68,7 @@ public interface DataStorage {
     void release(String clientId, int packetId);
 
     /**
-     * use on publish message
+     * send on publish message
      * on qos2 receive
      * @param clientId
      * @param packetId
@@ -83,7 +83,7 @@ public interface DataStorage {
 
     void addPacketId(String clientId, int packetId);
 
-    Future<Boolean> containsPacketId(String clientId, int packetId);
+    Future<List<Integer>> unacknowledgedPacketId(String clientId);
 
     void removePacketId(String clientId, int packetId);
 

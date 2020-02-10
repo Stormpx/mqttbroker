@@ -1,5 +1,7 @@
 package com.stormpx.server;
 
+import com.stormpx.ex.QosNotSupportedException;
+import com.stormpx.ex.RetainNotSupportedException;
 import com.stormpx.message.MqttBrokerMessage;
 import com.stormpx.message.MqttPublishMessage;
 import com.stormpx.message.MqttSubscribeMessage;
@@ -27,18 +29,17 @@ public class Mqtt3Context extends AbstractMqttContext {
     }
 
     @Override
-    protected void handlePublish(MqttPublishPacket publishPacket) {
+    protected MqttPublishMessage getPublishMessage(MqttPublishPacket publishPacket){
         FixedHeader fixedHeader = publishPacket.fixedHeader();
-        if ((fixedHeader.isRetain()&&!mqttSessionOption.isRetainAvailable())||fixedHeader.getQos()>mqttSessionOption.getMaxQos().value()){
-            close();
-            return;
+        if ((fixedHeader.isRetain()&&!mqttSessionOption.isRetainAvailable())){
+            throw new RetainNotSupportedException();
+        }
+        if (fixedHeader.getQos()>mqttSessionOption.getMaxQos().value()){
+            throw new QosNotSupportedException();
         }
         MqttPublishMessage mqttPublishMessage =  new MqttPublishMessage(publishPacket.getTopicName(), fixedHeader.getQosAsEnum(), fixedHeader.isRetain(),
                 fixedHeader.isDup(), Buffer.buffer(publishPacket.getPayload()), publishPacket.getPacketIdentifier());
-        if (this.publishHandler!=null){
-            this.publishHandler.handle(mqttPublishMessage);
-        }
-
+        return mqttPublishMessage;
     }
 
     @Override
@@ -60,6 +61,10 @@ public class Mqtt3Context extends AbstractMqttContext {
 
     @Override
     protected void handleSubscribe(MqttSubscribePacket subscribePacket) {
+        if (mqttSession.containsPacketId(subscribePacket.getPacketIdentifier())){
+            subscribeAcknowledge(subscribePacket.getPacketIdentifier(),subscribePacket.getSubscriptions().stream().map(s->ReasonCode.UNSPECIFIED_ERROR).collect(Collectors.toList()),null,null);
+            return;
+        }
         MqttSubscribeMessage subscribeMessage =
                 new MqttSubscribeMessage(subscribePacket.getSubscriptions(), subscribePacket.getPacketIdentifier(), 0, Collections.emptyList());
 
@@ -70,6 +75,10 @@ public class Mqtt3Context extends AbstractMqttContext {
 
     @Override
     protected void handleUnSubscribe(MqttUnSubscribePacket unSubscribePacket) {
+        if (mqttSession.containsPacketId(unSubscribePacket.getPacketIdentifier())){
+            subscribeAcknowledge(unSubscribePacket.getPacketIdentifier(),unSubscribePacket.getSubscriptions().stream().map(s->ReasonCode.UNSPECIFIED_ERROR).collect(Collectors.toList()),null,null);
+            return;
+        }
         MqttUnSubscribeMessage mqttUnSubscribeMessage =
                 new MqttUnSubscribeMessage(unSubscribePacket.getSubscriptions(), unSubscribePacket.getPacketIdentifier(), Collections.emptyList());
         if (unSubscribeHandler!=null){

@@ -15,7 +15,8 @@ public class MqttSessionImpl implements MqttSession {
     private MqttWill will;
     private MqttAuth auth;
     private int lastMessageId=1;
-    private Set<Integer> set;
+    private Set<Integer> packetIdSet;
+    private Set<Integer> endPointPacketIdSet;
     private long expiryTime;
 
 
@@ -24,7 +25,8 @@ public class MqttSessionImpl implements MqttSession {
         this.clientIdentifier = clientIdentifier;
         this.will = will;
         this.auth = auth;
-        this.set=new HashSet<>();
+        this.packetIdSet =new HashSet<>();
+        this.endPointPacketIdSet=new HashSet<>();
     }
 
     public void setClientIdentifier(String clientId){
@@ -52,7 +54,7 @@ public class MqttSessionImpl implements MqttSession {
         if (lastMessageId >= 65536)
             lastMessageId = 1;
         //may infinite loop
-        while (set.contains(lastMessageId)) {
+        while (packetIdSet.contains(lastMessageId)) {
             lastMessageId+=1;
             if (lastMessageId >= 65536)
                 lastMessageId = 1;
@@ -61,13 +63,33 @@ public class MqttSessionImpl implements MqttSession {
     }
 
     @Override
-    public void use(int packetId) {
-        set.add(packetId);
+    public void send(int packetId) {
+        packetIdSet.add(packetId);
     }
 
     @Override
     public void release(int packetId) {
-        set.remove(packetId);
+        packetIdSet.remove(packetId);
+    }
+
+    @Override
+    public void addPacketId(int packetId){
+        endPointPacketIdSet.add(packetId);
+    }
+
+    @Override
+    public boolean containsPacketId(int packetId){
+        return endPointPacketIdSet.contains(packetId);
+    }
+
+    @Override
+    public void removePacketId(int packetId){
+        endPointPacketIdSet.remove(packetId);
+    }
+
+    @Override
+    public int endPointUsedQuota(){
+        return endPointPacketIdSet.size();
     }
 
     @Override

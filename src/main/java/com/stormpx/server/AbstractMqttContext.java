@@ -144,7 +144,7 @@ public abstract class AbstractMqttContext implements MqttContext {
                     handlePublishComplete((MqttPapaPacket) packet);
                     break;
                 case PUBREL:
-                    publishRelease(((MqttPapaPacket) packet).getPacketIdentifier());
+                    handlePublishRelease((MqttPapaPacket) packet);
                     break;
                 case SUBSCRIBE:
                     handleSubscribe((MqttSubscribePacket) packet);
@@ -168,7 +168,42 @@ public abstract class AbstractMqttContext implements MqttContext {
 
     }
 
-    protected abstract void handlePublish(MqttPublishPacket publishPacket);
+    protected void handlePublish(MqttPublishPacket publishPacket){
+        MqttPublishMessage mqttPublishMessage = getPublishMessage(publishPacket);
+        MqttQoS qos = mqttPublishMessage.getQos();
+        if (qos!=MqttQoS.AT_MOST_ONCE){
+            int packetId = mqttPublishMessage.getPacketId();
+            if (mqttSession.containsPacketId(packetId)){
+                if (qos == MqttQoS.AT_LEAST_ONCE) {
+                    //PACKET_IDENTIFIER_IN_USE
+                    publishAcknowledge(packetId, ReasonCode.PACKET_IDENTIFIER_IN_USE, null, "packet identifier "+packetId+ " in use");
+                } else {
+                    //PUBREC
+                    publishReceived(packetId, ReasonCode.SUCCESS, null, null);
+                }
+                return;
+            }
+            mqttSession.addPacketId(packetId);
+        }
+
+        if (qos!=MqttQoS.AT_MOST_ONCE&&mqttSession.endPointUsedQuota()>=mqttSessionOption.getReceiveMaximum()){
+            // quota exceeded
+            if (qos==MqttQoS.AT_LEAST_ONCE){
+                publishAcknowledge(mqttPublishMessage.getPacketId(),ReasonCode.QUOTA_EXCEEDED,null,"quota exceeded");
+            }else{
+                publishReceived(mqttPublishMessage.getPacketId(),ReasonCode.QUOTA_EXCEEDED,null,"quota exceeded");
+            }
+            return;
+        }
+
+        Handler<MqttPublishMessage> publishHandler = this.publishHandler;
+        if (publishHandler !=null) {
+            publishHandler.handle(mqttPublishMessage);
+        }
+
+    }
+
+    protected abstract MqttPublishMessage getPublishMessage(MqttPublishPacket publishPacket);
 
     public  void handleException(Throwable throwable){
 //        logger.info("client:"+mqttSession.clientIdentifier()+" throw ex cause:{}",throwable);
@@ -207,6 +242,16 @@ public abstract class AbstractMqttContext implements MqttContext {
         writeNext();
     }
 
+    protected void handlePublishRelease(MqttPapaPacket pubRelPacket){
+        int packetId = pubRelPacket.getPacketIdentifier();
+        if (!mqttSession.containsPacketId(packetId)){
+            publishComplete(packetId,ReasonCode.PACKET_IDENTIFIER_NOT_FOUND,null,"packet identifier not found");
+        }else{
+            publishComplete(packetId,ReasonCode.SUCCESS,null,null);
+            mqttSession.removePacketId(packetId);
+        }
+        publishRelease(packetId);
+    }
 
     protected abstract void handleSubscribe(MqttSubscribePacket subscribePacket);
 
@@ -215,7 +260,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     protected void handlePingReq(){
         if (isClose())
             return;
-        logger.debug("clientId :{} ping req ",mqttSession.clientIdentifier());
+//        logger.debug("clientId :{} ping req ",mqttSession.clientIdentifier());
         MqttPapaPacket pingResp=new MqttPapaPacket(new FixedHeader(ControlPacketType.PINGRESP,false,0,false,0),
                 0,null,null);
 
@@ -343,7 +388,9 @@ public abstract class AbstractMqttContext implements MqttContext {
 
     @Override
     public MqttContext setReceiveMaximum(int max) {
-        addProperties(new MqttProperties(MqttProperty.RECEIVE_MAXIMUM,max<1||max>65535?65535:max));
+        max=max<1||max>65535?65535:max;
+        mqttSessionOption.setReceiveMaximum(max);
+        addProperties(new MqttProperties(MqttProperty.RECEIVE_MAXIMUM, max));
         return this;
     }
 
@@ -462,7 +509,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     public void publishRelease(int packetId, ReasonCode reasonCode, List<StringPair> userProperty, String reasonString) {
         if (!inFlightMap.containsKey(packetId)) {
             inFlightMap.put(packetId, MqttInFlightMessage.wrapper(null).setReceived(true));
-            this.mqttSession.use(packetId);
+            this.mqttSession.send(packetId);
         }
     }
 
@@ -617,13 +664,11 @@ public abstract class AbstractMqttContext implements MqttContext {
             if (packetId==null||packetId==0){
                 packetId=this.mqttSession.nextMessageId();
                 message.setPacketId(packetId);
-
-            }else{
-                this.mqttSession.use(packetId);
             }
             writeMessage(message).setHandler(ar->{
                 if (ar.succeeded()){
                     inFlightMap.put(message.getPacketId(), inFlightMessage);
+                    this.mqttSession.send(message.getPacketId());
                     inFlightMessage.getPromise().complete(message.getPacketId());
                 }else{
                     if (ar.cause() instanceof PacketTooLagerException){
