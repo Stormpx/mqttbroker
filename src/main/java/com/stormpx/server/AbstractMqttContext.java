@@ -183,7 +183,6 @@ public abstract class AbstractMqttContext implements MqttContext {
                 }
                 return;
             }
-            mqttSession.addPacketId(packetId);
         }
 
         if (qos!=MqttQoS.AT_MOST_ONCE&&mqttSession.endPointUsedQuota()>=mqttSessionOption.getReceiveMaximum()){
@@ -194,6 +193,10 @@ public abstract class AbstractMqttContext implements MqttContext {
                 publishReceived(mqttPublishMessage.getPacketId(),ReasonCode.QUOTA_EXCEEDED,null,"quota exceeded");
             }
             return;
+        }
+
+        if (qos==MqttQoS.EXACTLY_ONCE){
+            mqttSession.addPacketId(mqttPublishMessage.getPacketId());
         }
 
         Handler<MqttPublishMessage> publishHandler = this.publishHandler;

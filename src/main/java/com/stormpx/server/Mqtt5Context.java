@@ -80,8 +80,10 @@ public class Mqtt5Context extends AbstractMqttContext {
                     }else{
                         aliasToTopicMap.put(value,mqttPublishMessage.getTopic());
                     }
-                    mqttPublishMessage.setTopicAlias((Integer) properties.getValue());
+                    mqttPublishMessage.setTopicAlias(value);
                     break;
+                    default:
+                        throw new ProtocolErrorException();
             }
         }
         //        mqttPublishMessage.setExpiryTimestamp(Instant.now().getEpochSecond()+mqttPublishMessage.getMessageExpiryInterval());

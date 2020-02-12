@@ -462,8 +462,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             // auth
             boolean isQos0=message.getQos()==MqttQoS.AT_MOST_ONCE;
             String clientId = mqttContext.session().clientIdentifier();
-            if (!isQos0)
-                dataStorage.addPacketId(clientId, message.getPacketId());
 
             authenticator.authorizePub(clientId,message.getTopic())
                     .setHandler(aar->{
@@ -488,10 +486,9 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                 }
 
                                 if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
-                                    mqttContext.session().removePacketId(message.getPacketId());
-                                    dataStorage.removePacketId(mqttContext.session().clientIdentifier(),message.getPacketId());
                                     mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
                                 }else if (message.getQos()==MqttQoS.EXACTLY_ONCE){
+                                    dataStorage.addPacketId(clientId, message.getPacketId());
                                     mqttContext.publishReceived(message.getPacketId(),ReasonCode.SUCCESS, userProperty,null);
                                 }
                                 //dispatcher
@@ -499,8 +496,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
                             }else{
                                 if (message.getQos()==MqttQoS.AT_LEAST_ONCE){
-                                    mqttContext.session().removePacketId(message.getPacketId());
-                                    dataStorage.removePacketId(mqttContext.session().clientIdentifier(),message.getPacketId());
                                     mqttContext.publishAcknowledge(message.getPacketId(),ReasonCode.NOT_AUTHORIZED,userProperty,null);
                                 }else if (message.getQos()==MqttQoS.EXACTLY_ONCE){
                                     mqttContext.publishReceived(message.getPacketId(),ReasonCode.NOT_AUTHORIZED,userProperty,null);
@@ -605,47 +600,18 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 });
     }
 
-   /*
-    private Future<JsonObject> handlePublishMessage(String clientId,MqttPublishMessage message){
-        Promise<Boolean> promise=Promise.promise();
-        logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}",clientId,message.getTopic(),message.getQos().value(),message.isRetain());
-        if (message.getQos()==MqttQoS.EXACTLY_ONCE){
-            dataStorage.containsPacketId(clientId,message.getPacketId())
-                    .setHandler(r->{
-                        if (r.succeeded()) {
-                            if (!r.result()) {
-                                dataStorage.addPacketId(clientId, message.getPacketId());
-                                promise.complete(true);
-                            }else{
-                                promise.complete(false);
-                            }
-                        }else{
-                            promise.fail(r.cause());
-                        }
-                    });
-        }else {
-            promise.complete(true);
-        }
-        return promise.future().compose(b->{
-            if (b) {
-                JsonObject m = message.toJson().put("clientId", clientId);
-                if (message.getQos()!=MqttQoS.AT_MOST_ONCE){
-                    String id = UUID.randomUUID().toString().replaceAll("-", "");
-                    m.put("id",id);
-                }
-                return Future.succeededFuture(m);
-//                return dataStorage.storeMessage(m).map(id->m.put("id",id));
-            }else{
-                return Future.succeededFuture(null);
-            }
-        });
-    }*/
+
 
     private Future<Boolean> handleSessionPresent(MqttContext mqttContext, boolean sessionPresent){
         String clientId = mqttContext.session().clientIdentifier();
         takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
         if (sessionPresent){
-            return CompositeFuture.all(subscribeByClientId(mqttContext),writeUnFinishMessage(mqttContext),addUnacknowledgedPacketId(mqttContext))
+
+            return addUnacknowledgedPacketId(mqttContext)
+                    .onSuccess(v->{
+                        writeUnFinishMessage(mqttContext);
+                        subscribeByClientId(mqttContext);
+                    })
                     .map(true);
 
         }else {
