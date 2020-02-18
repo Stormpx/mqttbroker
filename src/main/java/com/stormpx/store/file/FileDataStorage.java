@@ -1,5 +1,6 @@
 package com.stormpx.store.file;
 
+import com.stormpx.cluster.LogEntry;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.store.DataStorage;
 import com.stormpx.store.MessageLink;
@@ -57,6 +58,24 @@ public class FileDataStorage implements DataStorage {
     public Future<Void> close() {
         atomicBoolean.compareAndSet(true,false);
         return Future.succeededFuture();
+    }
+
+    @Override
+    public void saveState(JsonObject state) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "saveState");
+        vertx.eventBus().publish(SOTRE_ADDRESS,state,deliveryOptions);
+    }
+
+    @Override
+    public void saveLog(LogEntry logEntry) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "saveLog");
+        vertx.eventBus().publish(SOTRE_ADDRESS,logEntry,deliveryOptions);
+    }
+
+    @Override
+    public void delLog(int start, int end) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "delLog");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("start",start).put("end",end),deliveryOptions);
     }
 
     @Override

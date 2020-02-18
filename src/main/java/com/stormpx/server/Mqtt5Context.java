@@ -333,8 +333,7 @@ public class Mqtt5Context extends AbstractMqttContext {
     public void publishComplete(int packetId, ReasonCode reasonCode, List<StringPair> userProperty, String reasonString) {
         List<MqttProperties> list = buildProperties(userProperty, reasonString);
 
-        var packet=new MqttPapaPacket(FixedHeader.PUBCOMP,
-                packetId,reasonCode,list);
+        var packet=new MqttPapaPacket(FixedHeader.PUBCOMP, packetId,reasonCode,list);
         mqttSocket.writePacket(packet);
     }
 

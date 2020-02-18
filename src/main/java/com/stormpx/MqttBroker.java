@@ -55,26 +55,12 @@ public class MqttBroker {
         retriever.getConfig(ar->{
             try {
                 if (ar.succeeded()){
-                    JsonObject config = ar.result();
-                    setLogLevel(config);
-                    int availableProcessors = Runtime.getRuntime().availableProcessors();
-                    logger.info("available processors :{}",availableProcessors);
-                    Integer verticleInstance = config.getInteger("verticle_instance", availableProcessors);
-                    logger.info("verticle instance :{}",verticleInstance);
-                    DeploymentOptions mqtt = new DeploymentOptions().setInstances(verticleInstance).setConfig(config);
-
                     retriever.listen(configChange->{
                         logger.info("detected config change");
                         vertx.eventBus().publish(":config_change::",configChange, new DeliveryOptions().setLocalOnly(true));
                     });
 
-                    vertx.deployVerticle(MqttBrokerVerticle.class,mqtt,arr->{
-                        if (arr.succeeded()){
-                            promise.complete();
-                        }else{
-                            promise.fail(arr.cause());
-                        }
-                    });
+                    start(vertx,ar.result());
                 }else{
                     promise.fail(ar.cause());
                 }
@@ -84,6 +70,26 @@ public class MqttBroker {
         });
         return promise.future();
 
+    }
+
+
+    public static Future<Void> start(Vertx vertx,JsonObject config){
+        Promise<Void> promise=Promise.promise();
+        setLogLevel(config);
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        logger.info("available processors :{}",availableProcessors);
+        Integer verticleInstance = config.getInteger("verticle_instance", availableProcessors);
+        logger.info("verticle instance :{}",verticleInstance);
+        DeploymentOptions mqtt = new DeploymentOptions().setInstances(verticleInstance).setConfig(config);
+
+        vertx.deployVerticle(MqttBrokerVerticle.class,mqtt,arr->{
+            if (arr.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(arr.cause());
+            }
+        });
+        return promise.future();
     }
 
     private static void setLogLevel(JsonObject jsonObject){

@@ -233,7 +233,7 @@ public abstract class AbstractMqttContext implements MqttContext {
             if (mqttInFlightMessage != null) {
                 mqttInFlightMessage.setReceived(true);
             }
-            //call receive handler
+            //call receive voteHandler
             publishReceive(pubRecPacket.getPacketIdentifier());
         }
     }
@@ -589,7 +589,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     * release packetId and call handler
+     * release packetId and call voteHandler
      * @param messageId packetId
      */
     private void publishAcknowledge(int messageId){
@@ -600,7 +600,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     *  call handler
+     *  call voteHandler
      * @param messageId packetId
      */
     private void publishReceive(int messageId){
@@ -609,7 +609,7 @@ public abstract class AbstractMqttContext implements MqttContext {
         }
     }
     /**
-     *  call handler
+     *  call voteHandler
      * @param messageId packetId
      */
     private void publishRelease(int messageId){
@@ -620,7 +620,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     * release packetId and call handler
+     * release packetId and call voteHandler
      * @param messageId packetId
      */
     private void publishComplete(int messageId){

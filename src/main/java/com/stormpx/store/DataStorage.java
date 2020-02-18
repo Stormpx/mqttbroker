@@ -1,5 +1,7 @@
 package com.stormpx.store;
 
+import com.stormpx.cluster.ClusterState;
+import com.stormpx.cluster.LogEntry;
 import com.stormpx.mqtt.MqttSubscription;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
@@ -13,6 +15,14 @@ public interface DataStorage {
 
 
     Future<Void> close();
+
+
+    void saveState(JsonObject state);
+
+
+    void saveLog(LogEntry logEntry);
+
+    void delLog(int start,int end);
 
     /**
      * delete all unReleaseMessage receivedPacketId subscription
@@ -104,4 +114,6 @@ public interface DataStorage {
     default Future<TimeoutWill> fetchFirstTimeoutWill(){
         return null;
     }
+
+
 }

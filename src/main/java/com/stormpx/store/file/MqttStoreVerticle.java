@@ -324,7 +324,24 @@ public class MqttStoreVerticle extends AbstractVerticle {
 
     private void clearSession(JsonObject body) {
         String clientId = body.getString("clientId");
-        sessionStore.deleteSession(clientId);
+        SessionObj session = sessionStore.getSession(clientId);
+        if (session!=null){
+            sessionStore.deleteSession(clientId);
+            Stream<String> stream = session.getPendingMessage().keySet().stream();
+            Stream<String> stream0 = session.getMessageLinkMap()
+                    .values()
+                    .stream()
+                    .filter(link -> link.getString("id") != null)
+                    .map(link -> link.getString("id"));
+            Stream.concat(stream,stream0)
+                    .forEach(id->{
+                        MessageObj obj = publishMessageStore.getObj(id);
+                        if (obj!=null)
+                            obj.add(-1);
+                    });
+
+        }
+
     }
 
 

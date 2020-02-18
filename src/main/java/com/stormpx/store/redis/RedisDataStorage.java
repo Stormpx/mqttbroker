@@ -1,5 +1,6 @@
 package com.stormpx.store.redis;
 
+import com.stormpx.cluster.LogEntry;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.store.DataStorage;
 import com.stormpx.store.MessageLink;
@@ -20,6 +21,21 @@ public class RedisDataStorage implements DataStorage {
     @Override
     public Future<Void> close() {
         return null;
+    }
+
+    @Override
+    public void saveState(JsonObject state) {
+
+    }
+
+    @Override
+    public void saveLog(LogEntry logEntry) {
+
+    }
+
+    @Override
+    public void delLog(int start, int end) {
+
     }
 
     @Override
