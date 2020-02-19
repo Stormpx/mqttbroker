@@ -1,10 +1,12 @@
 package com.stormpx.cluster;
 
 import com.stormpx.cluster.message.ActionLog;
+import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.net.Request;
 import com.stormpx.cluster.net.Response;
 import com.stormpx.kit.TopicFilter;
 import com.stormpx.kit.UnSafeJsonObject;
+import com.stormpx.kit.value.Values2;
 import com.stormpx.store.DataStorage;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.Future;
@@ -49,11 +51,41 @@ public class MqttStateHandler  implements StateHandler{
 
     @Override
     public Future<ClusterState> loadClusterState() {
-        return null;
+        return dataStorage.getState()
+                .compose(state-> dataStorage.logs().map(list-> Values2.values(state,list)))
+                .map(v->{
+                    JsonObject state = v.getOne();
+                    List<LogEntry> logEntryList = v.getTwo();
+                    ClusterState clusterState = new ClusterState();
+                    if (state!=null){
+                        clusterState.setCurrentTerm(state.getInteger("term"));
+                        clusterState.setLastIndex(state.getInteger("lastIndex"));
+                        clusterState.setCommitIndex(state.getInteger("commitIndex"));
+                        clusterState.setLastApplied(state.getInteger("lastApplied"));
+                    }
+                    if (logEntryList!=null){
+                        int lastApplied = clusterState.getLastApplied();
+                        logEntryList.stream()
+                                .sorted(Comparator.comparingInt(LogEntry::getIndex))
+                                .forEachOrdered(log->{
+                                    if (log.getIndex()<=lastApplied) {
+                                        clusterState.setLog(log);
+                                        executeLog(log);
+                                    }
+                                });
+                    }
+                    return clusterState;
+                });
     }
 
     @Override
     public void handle(Request request) {
+        RpcMessage rpcMessage = request.getRpcMessage();
+        JsonObject json = rpcMessage.getBuffer().toJsonObject();
+        String action = json.getString("action");
+        //sub unsub saveid savesession --> leader wait headrtbeat  resp after commit
+        //dis retainMessage sessionIndex messageIndex req -->leader exec&resp after headrtbeat
+        //messagereq sessionreq --> respimmd
 
     }
 
@@ -63,7 +95,7 @@ public class MqttStateHandler  implements StateHandler{
     }
 
     @Override
-    public void onLeaderHeartbeat(String leaderId) {
+    public void onSafety(String leaderId) {
 
     }
 

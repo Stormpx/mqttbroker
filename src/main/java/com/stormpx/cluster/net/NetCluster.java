@@ -16,6 +16,8 @@ public interface NetCluster {
 
     NetCluster rpcRequestHandler(Handler<Request> handler);
 
+    NetCluster readIndexRequestHandler(Handler<ReadIndexRequest> handler);
+
     ClusterNode getNode(String id);
 
     Collection<ClusterNode> nodes();

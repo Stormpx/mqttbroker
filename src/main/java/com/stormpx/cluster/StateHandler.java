@@ -13,7 +13,7 @@ public interface StateHandler  {
 
     void handle(Response response);
 
-    void onLeaderHeartbeat(String leaderId);
+    void onSafety(String leaderId);
 
     void saveState(ClusterState clusterState);
 

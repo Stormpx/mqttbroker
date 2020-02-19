@@ -34,6 +34,7 @@ public class ClusterClient implements ClusterNode {
     private Handler<VoteResponse> voteResponseHandler;
     private Handler<AppendEntriesResponse> appendEntriesResponseHandler;
     private Handler<Response> responseHandler;
+    private Handler<ReadIndexResponse> readIndexResponseHandler;
 
 
     public ClusterClient(Vertx vertx, String id, SocketAddress socketAddress) {
@@ -77,6 +78,11 @@ public class ClusterClient implements ClusterNode {
                 Handler<Response> responseHandler = this.responseHandler;
                 if (responseHandler!=null)
                     responseHandler.handle(response);
+                break;
+            case READINDEX:
+                Handler<ReadIndexResponse> readIndexResponseHandler = this.readIndexResponseHandler;
+                if (readIndexResponseHandler!=null)
+                    readIndexResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),ReadIndexResponse.class));
                 break;
         }
     }
@@ -131,15 +137,21 @@ public class ClusterClient implements ClusterNode {
     @Override
     public void request(int requestId, Buffer buffer) {
         if (!active) {
-//            Handler<Response> responseHandler = this.responseHandler;
-//            if (responseHandler!=null)
-//                responseHandler.handle(new Response().setSuccess(false).setRequestId(requestId));
             return;
         }
         netSocket.write(Buffer.buffer(9+buffer.length()).appendByte((byte) MessageType.REQUEST.getValue())
                 .appendInt(requestId)
                 .appendInt(buffer.length())
                 .appendBuffer(buffer));
+
+    }
+
+    @Override
+    public void requestReadIndex(String id) {
+        if (!active) {
+            return;
+        }
+        tryWrite(MessageType.APPENDENTRIES,Buffer.buffer(id,"utf-8"));
 
     }
 
@@ -163,6 +175,12 @@ public class ClusterClient implements ClusterNode {
     @Override
     public ClusterNode responseListener(Handler<Response> handler) {
         this.responseHandler=handler;
+        return this;
+    }
+
+    @Override
+    public ClusterNode requestIndexResponseListener(Handler<ReadIndexResponse> handler) {
+        this.readIndexResponseHandler=handler;
         return this;
     }
 

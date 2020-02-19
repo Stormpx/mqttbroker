@@ -33,6 +33,7 @@ public class NetClusterImpl implements NetCluster {
     private Handler<VoteRequest> voteRequestHandler;
     private Handler<AppendEntriesRequest> appendEntriesRequestHandler;
     private Handler<Request> clusterRequestHandler;
+    private Handler<ReadIndexRequest> readIndexRequestHandler;
     //key nodeId value client
     private Map<String, ClusterNode> nodeMap;
 
@@ -108,6 +109,11 @@ public class NetClusterImpl implements NetCluster {
                 if (clusterRequestHandler!=null)
                     clusterRequestHandler.handle(request);
                 break;
+            case READINDEX:
+                ReadIndexRequest readIndexRequest = new ReadIndexRequest(netSocket, this);
+                Handler<ReadIndexRequest> readIndexRequestHandler = this.readIndexRequestHandler;
+                if (readIndexRequestHandler!=null)
+                    readIndexRequestHandler.handle(readIndexRequest);
         }
     }
     @Override
@@ -125,6 +131,12 @@ public class NetClusterImpl implements NetCluster {
     @Override
     public NetCluster rpcRequestHandler(Handler<Request> handler) {
         this.clusterRequestHandler=handler;
+        return this;
+    }
+
+    @Override
+    public NetCluster readIndexRequestHandler(Handler<ReadIndexRequest> handler) {
+        this.readIndexRequestHandler=handler;
         return this;
     }
 
@@ -162,6 +174,13 @@ public class NetClusterImpl implements NetCluster {
 
     }
 
+    void readIndexResponse(NetSocket netSocket,ReadIndexResponse readIndexResponse){
+        if (!netSockets.contains(netSocket))
+            return ;
+
+        Buffer buffer = Json.encodeToBuffer(readIndexResponse);
+        netSocket.write(Buffer.buffer(5+buffer.length()).appendByte((byte) MessageType.READINDEX.getValue()).appendInt(buffer.length()).appendBuffer(buffer));
+    }
 
     @Override
     public ClusterNode getNode(String id) {

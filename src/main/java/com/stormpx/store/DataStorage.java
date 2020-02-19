@@ -19,6 +19,9 @@ public interface DataStorage {
 
     void saveState(JsonObject state);
 
+    Future<JsonObject> getState();
+
+    Future<List<LogEntry>> logs();
 
     void saveLog(LogEntry logEntry);
 

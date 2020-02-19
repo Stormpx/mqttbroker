@@ -4,7 +4,8 @@ public enum  MessageType {
 
     APPENDENTRIES(1),
     VOTE(2),
-    REQUEST(3)
+    REQUEST(3),
+    READINDEX(4)
     ;
 
 

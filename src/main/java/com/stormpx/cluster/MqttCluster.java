@@ -1,7 +1,6 @@
 package com.stormpx.cluster;
 
 import com.stormpx.cluster.message.AppendEntriesMessage;
-import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.message.VoteMessage;
 import com.stormpx.cluster.net.*;
 import io.vertx.core.*;
@@ -29,11 +28,14 @@ public class MqttCluster {
 
     private MemberType memberType=MemberType.FOLLOWER;
 
+    private String leaderId;
+
     private Counter counter;
 
-
-
     private TimeoutStream timeoutStream;
+
+    private Deque<ReadState> deque;
+    private Map<String,Promise<Integer>> readIndexMap;
 
     public MqttCluster(Vertx vertx, JsonObject config) {
         this.clusterState=new ClusterState();
@@ -47,20 +49,27 @@ public class MqttCluster {
         if (nodeId==null){
             return Future.failedFuture("nodeId empty");
         }
+        this.deque=new LinkedList<>();
+        this.readIndexMap=new HashMap<>();
+
         return stateHandler.loadClusterState()
                 .onSuccess(c->this.clusterState=c)
                 .compose(v->{
                     this.clusterState=v;
                     this.clusterState.setId(nodeId);
                     this.netCluster=new NetClusterImpl(vertx,config);
-                    return this.netCluster.appendEntriesRequestHandler(this::onAppendEntriesRequest)
-                            .voteRequestHandler(this::onVoteRequest)
+                    return this.netCluster.appendEntriesRequestHandler(this::handleAppendEntriesRequest)
+                            .voteRequestHandler(this::handleVoteRequest)
+                            .rpcRequestHandler(stateHandler::handle)
+                            .readIndexRequestHandler(this::handleReadIndexRequest)
                             .init();
                 })
                 .onSuccess(v->{
                     netCluster.nodes().forEach(cn->{
-                        cn.appendEntriesResponseListener(this::onAppendEntriesResponse);
-                        cn.voteResponseListener(this::onVoteResponse);
+                        cn.appendEntriesResponseListener(this::handleAppendEntriesResponse);
+                        cn.voteResponseListener(this::handleVoteResponse);
+                        cn.responseListener(stateHandler::handle);
+                        cn.requestIndexResponseListener(this::handleReadIndexResponse);
                     });
 
                     becomeFollower(clusterState.getCurrentTerm());
@@ -92,7 +101,7 @@ public class MqttCluster {
 
 
 
-    private void onAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest){
+    private void handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest){
 
         AppendEntriesMessage appendEntriesMessage =
                 appendEntriesRequest.getAppendEntriesMessage();
@@ -103,6 +112,9 @@ public class MqttCluster {
             appendEntriesRequest.response(clusterState.getCurrentTerm(),prevLogIndex,false);
             return;
         }
+
+        this.leaderId=appendEntriesMessage.getLeaderId();
+
         boolean success=true;
         int requestLastIndex=prevLogIndex;
 
@@ -144,26 +156,37 @@ public class MqttCluster {
             if (appendEntriesMessage.getLeaderCommit() > clusterState.getCommitIndex()) {
                 int commitIndex=Math.min(appendEntriesMessage.getLeaderCommit(), logEntries.get(0)==null?Integer.MAX_VALUE: logEntries.get(0).getIndex());
                 clusterState.setCommitIndex(commitIndex);
-                applyCommitIndex();
-            }
 
+            }
+            applyCommitIndex();
+
+
+            if (appendEntriesMessage.getLeaderCommit()<=clusterState.getLastApplied()) {
+                stateHandler.onSafety(appendEntriesMessage.getLeaderId());
+            }
 
             if (!logEntries.isEmpty())
                 requestLastIndex= logEntries.get(logEntries.size()-1).getIndex();
         }
         becomeFollower(appendEntriesMessage.getTerm());
 
-        stateHandler.onLeaderHeartbeat(appendEntriesMessage.getLeaderId());
+
 
         //response
         appendEntriesRequest.response(clusterState.getCurrentTerm(),requestLastIndex,success);
     }
 
-    private void onAppendEntriesResponse(AppendEntriesResponse response){
+    private void handleAppendEntriesResponse(AppendEntriesResponse response){
         if (response.getTerm()>clusterState.getCurrentTerm()){
             becomeFollower(response.getTerm());
+            if (memberType==MemberType.LEADER) {
+                failState();
+            }
             return;
         }
+        if (memberType!=MemberType.LEADER)
+            return;
+
         String nodeId = response.getNodeId();
 
         NodeState nodeState = netCluster.getNode(nodeId).state();
@@ -189,13 +212,14 @@ public class MqttCluster {
             counter.add(nodeId);
             if (counter.isMajority()){
                 this.counter=new Counter(netCluster.nodes().size());
-                stateHandler.onLeaderHeartbeat(clusterState.getId());
+                safeState();
+//                stateHandler.onSafety(clusterState.getId());
             }
 
         }
     }
 
-    private void onVoteRequest(VoteRequest voteRequest){
+    private void handleVoteRequest(VoteRequest voteRequest){
 
         VoteMessage voteMessage = voteRequest.getVoteMessage();
         // if is connect test return true
@@ -205,6 +229,7 @@ public class MqttCluster {
         }
         logger.debug("vote request from node: {} term:{}",voteMessage.getCandidateId(),voteMessage.getTerm());
         if (voteMessage.getTerm()>clusterState.getCurrentTerm()) {
+            this.leaderId=null;
             becomeFollower(voteMessage.getTerm());
         }
         boolean voteGranted=false;
@@ -219,7 +244,7 @@ public class MqttCluster {
         voteRequest.response(new VoteResponse().setNodeId(clusterState.getId()).setVoteGranted(voteGranted).setTerm(clusterState.getCurrentTerm()));
 
     }
-    private void onVoteResponse(VoteResponse voteResponse){
+    private void handleVoteResponse(VoteResponse voteResponse){
         if (!voteResponse.isVoteGranted()){
             if (voteResponse.getTerm()>clusterState.getCurrentTerm()) {
                 becomeFollower(voteResponse.getTerm());
@@ -244,16 +269,83 @@ public class MqttCluster {
         }
     }
 
+
+    private void handleReadIndexRequest(ReadIndexRequest readIndexRequest){
+        if (this.memberType!=MemberType.LEADER){
+            readIndexRequest.response(false,0);
+            return;
+        }
+        readonlySafeFuture().setHandler(ar->{
+           if (ar.succeeded()){
+               readIndexRequest.response(true,ar.result());
+           }else{
+               readIndexRequest.response(false,0);
+           }
+        });
+
+    }
+
+    private void handleReadIndexResponse(ReadIndexResponse readIndexResponse){
+        String id = readIndexResponse.getId();
+        Promise<Integer> promise = readIndexMap.remove(id);
+        if (!readIndexResponse.isLeader()){
+            if (promise!=null)
+                promise.tryFail("fail");
+            return;
+        }
+        if (promise==null)
+            return;
+        int readIndex = readIndexResponse.getReadIndex();
+
+        ReadState readState = new ReadState(readIndex);
+        readState.promise.future().setHandler(ar->{
+            if (ar.succeeded()){
+                promise.tryComplete(readState.readIndex);
+            }else{
+                promise.tryFail(ar.cause());
+            }
+        });
+        deque.addLast(readState);
+    }
+
+
     private void applyCommitIndex(){
         int lastApplied = clusterState.getLastApplied();
         int commitIndex = clusterState.getCommitIndex();
         while (lastApplied < commitIndex){
-            stateHandler.executeLog(clusterState.getLog(++lastApplied));
+            LogEntry log = clusterState.getLog(++lastApplied);
+            if (log==null) {
+                commitIndex=lastApplied;
+                break;
+            }
+            stateHandler.executeLog(log);
         }
+        clusterState.setCommitIndex(commitIndex);
         clusterState.setLastApplied(lastApplied);
 
     }
 
+    private void safeState(){
+        int lastApplied = clusterState.getLastApplied();
+        while (!deque.isEmpty()){
+            ReadState state = deque.peek();
+            if (state.readIndex>lastApplied)
+                break;
+
+            state.promise.tryComplete(state.readIndex);
+
+            deque.poll();
+
+        }
+    }
+
+    private void failState(){
+        Deque<ReadState> deque = this.deque;
+        this.deque=new LinkedList<>();
+        for (ReadState readState : deque) {
+            readState.promise.tryFail("fail");
+        }
+    }
 
     /**
      * follower timer
@@ -263,6 +355,7 @@ public class MqttCluster {
             this.timeoutStream.cancel();
 
         this.timeoutStream=vertx.timerStream(5000).handler(id->{
+            this.leaderId=null;
             logger.debug("term: {} votedFor: {} commitIndex:{} lastApplied:{} lastIndex:{}",
                     clusterState.getCurrentTerm(),clusterState.getVotedFor(),clusterState.getCommitIndex(),
                     clusterState.getLastApplied(),clusterState.getLastIndex());
@@ -387,16 +480,40 @@ public class MqttCluster {
         });
 
     }
-    private List<RpcMessage> pendingMessage;
 
-    public void requestLeader(int requestId,Buffer payload){
+
+
+    public Future<Integer> readonlySafeFuture(){
+        if (this.memberType==MemberType.LEADER) {
+            ReadState readState = deque.peekLast();
+            if (readState != null) {
+                if (readState.readIndex == clusterState.getCommitIndex())
+                    return readState.promise.future();
+            }
+            ReadState state = new ReadState(clusterState.getCommitIndex());
+            deque.addLast(state);
+            return state.promise.future();
+        }else{
+            if (this.leaderId==null){
+                return Future.failedFuture("no leader");
+            }
+            Promise<Integer> promise=Promise.promise();
+            String id = UUID.randomUUID().toString();
+            readIndexMap.put(id,promise);
+            ClusterNode leaderNode = netCluster.getNode(leaderId);
+            leaderNode.requestReadIndex(id);
+            vertx.setTimer(1000,timer->{
+                Promise<Integer> p = readIndexMap.remove(id);
+                if (p!=null){
+                    p.tryFail("timeout");
+                }
+            });
+            return promise.future();
+        }
 
     }
 
-    public void request(List<String> nodeIds,int requestId, Buffer payload){
 
-
-    }
 
     public void addLog(Buffer buffer){
         stateHandler.saveLog(clusterState.addLog(buffer));
@@ -413,4 +530,17 @@ public class MqttCluster {
     public MemberType getMemberType() {
         return memberType;
     }
+
+
+    class ReadState{
+        private int readIndex;
+        private Promise<Integer> promise;
+
+        public ReadState(int readIndex) {
+            this.readIndex = readIndex;
+            this.promise=Promise.promise();
+        }
+
+    }
+
 }
