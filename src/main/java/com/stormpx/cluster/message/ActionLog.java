@@ -66,6 +66,11 @@ public class ActionLog  {
         return this;
     }
 
+    @Override
+    public String toString() {
+        return "ActionLog{" + "action='" + action + '\'' + ", args=" + args + '}';
+    }
+
     public enum Action{
         SUBSCRIBE("subscribe"),
         UNSUBSCRIBE("unSubscribe"),

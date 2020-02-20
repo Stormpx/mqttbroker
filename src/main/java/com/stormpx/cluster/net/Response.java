@@ -4,6 +4,7 @@ import io.vertx.core.buffer.Buffer;
 
 public class Response {
     private boolean success;
+    private String nodeId;
     private int requestId;
     private Buffer payload;
 
@@ -31,6 +32,15 @@ public class Response {
 
     public Response setPayload(Buffer payload) {
         this.payload = payload;
+        return this;
+    }
+
+    public String getNodeId() {
+        return nodeId;
+    }
+
+    public Response setNodeId(String nodeId) {
+        this.nodeId = nodeId;
         return this;
     }
 }

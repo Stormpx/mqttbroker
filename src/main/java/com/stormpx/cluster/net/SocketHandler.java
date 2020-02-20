@@ -1,20 +1,20 @@
 package com.stormpx.cluster.net;
 
-import com.stormpx.cluster.message.AppendEntriesMessage;
 import com.stormpx.cluster.message.MessageType;
 import com.stormpx.cluster.message.RpcMessage;
-import com.stormpx.cluster.message.VoteMessage;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.util.CharsetUtil;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
-import io.vertx.core.json.Json;
 
 public class SocketHandler implements Handler<Buffer> {
     private MessageType messageType;
+    private Integer nodeIdLength;
+    private String nodeId;
     private Integer requestId;
     private CompositeByteBuf buf;
-    private Integer expectedLength;
+    private Integer payloadLength;
     private Handler<RpcMessage> handler;
 
     public SocketHandler() {
@@ -40,24 +40,35 @@ public class SocketHandler implements Handler<Buffer> {
                 return;
             messageType=MessageType.valueOf(buf.readByte());
         }
+        if (nodeIdLength==null){
+            if (buf.readableBytes()<2)
+                return;
+            nodeIdLength=buf.readUnsignedShort();
+        }
+        if (nodeId==null){
+            if (buf.readableBytes()<nodeIdLength){
+                return;
+            }
+            nodeId=buf.readSlice(nodeIdLength).toString(CharsetUtil.UTF_8);
+        }
         if (messageType==MessageType.REQUEST&&requestId==null){
             if (buf.readableBytes()<4) {
                 return;
             }
             requestId=buf.readInt();
         }
-        if (expectedLength==null){
+        if (payloadLength ==null){
             if (buf.readableBytes()<4) {
                 return;
             }
-            expectedLength = buf.readInt();
+            payloadLength = buf.readInt();
         }
-        if (buf.readableBytes()>=expectedLength){
-            Buffer payload = Buffer.buffer(buf.readSlice(expectedLength));
+        if (buf.readableBytes()>= payloadLength){
+            Buffer payload = Buffer.buffer(buf.readSlice(payloadLength));
             Handler<RpcMessage> handler = this.handler;
             if (handler!=null) {
                 try {
-                    handler.handle(new RpcMessage().setMessageType(messageType).setRequestId(requestId==null?0:requestId).setBuffer(payload));
+                    handler.handle(new RpcMessage().setMessageType(messageType).setFromId(nodeId).setRequestId(requestId).setRequestId(requestId==null?0:requestId).setBuffer(payload));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -68,7 +79,9 @@ public class SocketHandler implements Handler<Buffer> {
 
     }
     private void resetState(){
-        expectedLength=null;
+        payloadLength =null;
+        nodeIdLength=null;
+        nodeId=null;
         messageType=null;
         requestId=null;
     }

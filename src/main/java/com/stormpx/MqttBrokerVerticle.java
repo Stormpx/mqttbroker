@@ -678,7 +678,11 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         String topic = message.getString("topic");
         MqttQoS qos = MqttQoS.valueOf(message.getInteger("qos"));
         boolean retain = message.getBoolean("retain");
+        JsonArray shareTopics= (JsonArray) message.remove("shareTopics");
+        if (shareTopics==null)
+            shareTopics=J.EMPTY_ARRAY;
 
+        Set<String> shareTopicSet = shareTopics.stream().map(Object::toString).collect(Collectors.toSet());
 
         MqttConnectionHolder holder = mqttServer.holder();
         //find match  subscriber
@@ -699,6 +703,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                             for (TopicFilter.Entry e : subscribeInfo.getAllMatchSubscribe()) {
                                 //if isShare subscribe publish
                                 if (e.isShare()) {
+                                    if (!shareTopicSet.contains(e.getTopicFilterName()))
+                                        continue;
                                     //share subscribe get lock
                                     vertx.sharedData().getLockWithTimeout(e.getTopicFilterName()+id,40, ar->{
                                         if (ar.succeeded()){

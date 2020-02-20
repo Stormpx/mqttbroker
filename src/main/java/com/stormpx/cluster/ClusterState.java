@@ -34,9 +34,9 @@ public class ClusterState {
         return logMap.get(index);
     }
 
-    public LogEntry addLog(Buffer buffer){
+    public LogEntry addLog(String nodeId,int requestId,Buffer buffer){
         int index = ++lastIndex;
-        LogEntry logEntry = new LogEntry().setIndex(index).setTerm(currentTerm).setPayload(buffer);
+        LogEntry logEntry = new LogEntry().setIndex(index).setTerm(currentTerm).setNodeId(nodeId).setRequestId(requestId).setPayload(buffer);
         logMap.put(index, logEntry);
         return logEntry;
     }

@@ -2,10 +2,14 @@ package com.stormpx.cluster.message;
 
 public enum  MessageType {
 
-    APPENDENTRIES(1),
-    VOTE(2),
+    APPENDENTRIESREQUEST(1),
+    VOTEREQUEST(2),
     REQUEST(3),
-    READINDEX(4)
+    READINDEXREQUEST(4),
+    APPENDENTRIESRESPONSE(5),
+    VOTERESPONSE(6),
+    RESPONSE(7),
+    READINDEXRESPONSE(8)
     ;
 
 

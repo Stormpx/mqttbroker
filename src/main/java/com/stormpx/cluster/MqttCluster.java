@@ -59,42 +59,16 @@ public class MqttCluster {
                     this.clusterState.setId(nodeId);
                     this.netCluster=new NetClusterImpl(vertx,config);
                     return this.netCluster.appendEntriesRequestHandler(this::handleAppendEntriesRequest)
+                            .appendEntriesResponseHandler(this::handleAppendEntriesResponse)
                             .voteRequestHandler(this::handleVoteRequest)
-                            .rpcRequestHandler(stateHandler::handle)
+                            .voteResponseHandler(this::handleVoteResponse)
+                            .requestHandler(stateHandler::handle)
+                            .responseHandler(stateHandler::handle)
                             .readIndexRequestHandler(this::handleReadIndexRequest)
+                            .requestIndexResponseHandler(this::handleReadIndexResponse)
                             .init();
                 })
-                .onSuccess(v->{
-                    netCluster.nodes().forEach(cn->{
-                        cn.appendEntriesResponseListener(this::handleAppendEntriesResponse);
-                        cn.voteResponseListener(this::handleVoteResponse);
-                        cn.responseListener(stateHandler::handle);
-                        cn.requestIndexResponseListener(this::handleReadIndexResponse);
-                    });
-
-                    becomeFollower(clusterState.getCurrentTerm());
-
-
-                   /* vertx.eventBus().<UnSafeJsonObject>localConsumer("_mqtt_message_dispatcher")
-                            .handler(message->{
-                                UnSafeJsonObject unSafeJsonObject = message.body();
-                                JsonObject jsonObject = unSafeJsonObject.getJsonObject();
-                                //todo
-//                                sendToAllNode(jsonObject.toBuffer());
-
-                            });
-
-                    vertx.eventBus().<JsonObject>consumer("_mqtt_session_taken_over")
-                            .handler(message->{
-                                JsonObject body = message.body();
-                                String clientId = body.getString("clientId");
-                                String id = body.getString("id");
-                                boolean sessionEnd = body.getBoolean("sessionEnd", false);
-                                //todo
-//                                sendToAllNode(Buffer.buffer());
-                            });*/
-
-                });
+                .onSuccess(v-> becomeFollower(clusterState.getCurrentTerm()));
 
     }
 
@@ -160,10 +134,7 @@ public class MqttCluster {
             }
             applyCommitIndex();
 
-
-            if (appendEntriesMessage.getLeaderCommit()<=clusterState.getLastApplied()) {
-                stateHandler.onSafety(appendEntriesMessage.getLeaderId());
-            }
+            stateHandler.firePending(appendEntriesMessage.getLeaderId());
 
             if (!logEntries.isEmpty())
                 requestLastIndex= logEntries.get(logEntries.size()-1).getIndex();
@@ -213,7 +184,7 @@ public class MqttCluster {
             if (counter.isMajority()){
                 this.counter=new Counter(netCluster.nodes().size());
                 safeState();
-//                stateHandler.onSafety(clusterState.getId());
+                stateHandler.firePending(clusterState.getId());
             }
 
         }
@@ -399,9 +370,10 @@ public class MqttCluster {
         this.memberType=MemberType.LEADER;
         netCluster.initNodeIndex(clusterState.getLastIndex()+1);
         this.counter =new Counter(netCluster.nodes().size());
+        this.leaderId=clusterState.getId();
         clusterState.setVotedFor(null);
         //add nop
-        addLog(null);
+        addLog(clusterState.getId(),0,null);
         //send heartbeat
         sendAppendEntries();
         //set timer
@@ -444,7 +416,7 @@ public class MqttCluster {
                 voteRequest.setLastLogTerm(clusterState.getLog(clusterState.getLastIndex()).getTerm());
             }
         }
-        netCluster.nodes().forEach(cn->cn.request(voteRequest));
+        netCluster.nodes().forEach(cn->netCluster.request(cn.id(),voteRequest));
     }
 
     private void sendAppendEntries(){
@@ -476,7 +448,7 @@ public class MqttCluster {
                     appendEntriesMessage.setPrevLogTerm(clusterState.getLog(nextIndex - 1).getTerm());
                 }
             }
-            clusterNode.request(appendEntriesMessage);
+            netCluster.request(clusterNode.id(),appendEntriesMessage);
         });
 
     }
@@ -500,8 +472,7 @@ public class MqttCluster {
             Promise<Integer> promise=Promise.promise();
             String id = UUID.randomUUID().toString();
             readIndexMap.put(id,promise);
-            ClusterNode leaderNode = netCluster.getNode(leaderId);
-            leaderNode.requestReadIndex(id);
+            netCluster.requestReadIndex(leaderId,id);
             vertx.setTimer(1000,timer->{
                 Promise<Integer> p = readIndexMap.remove(id);
                 if (p!=null){
@@ -515,8 +486,18 @@ public class MqttCluster {
 
 
 
-    public void addLog(Buffer buffer){
-        stateHandler.saveLog(clusterState.addLog(buffer));
+    public void addLog(String nodeId,int requestId,Buffer buffer){
+        stateHandler.saveLog(clusterState.addLog(nodeId, requestId, buffer));
+    }
+
+    public void propose( int requestId, Buffer buffer){
+        if (leaderId != null) {
+            if (leaderId.equals(clusterState.getId())) {
+                addLog(clusterState.getId(), requestId, buffer);
+            } else {
+                netCluster.request(clusterState.getId(),requestId,buffer);
+            }
+        }
     }
 
     public boolean isLeader(){
@@ -525,6 +506,10 @@ public class MqttCluster {
 
     public ClusterState getClusterState() {
         return clusterState;
+    }
+
+    public NetCluster net() {
+        return netCluster;
     }
 
     public MemberType getMemberType() {
