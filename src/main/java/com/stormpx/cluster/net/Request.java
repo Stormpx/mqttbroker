@@ -24,5 +24,4 @@ public class Request {
         netCluster.rpcResponse(netSocket,rpcMessage.getRequestId(),success,buffer);
     }
 
-
 }

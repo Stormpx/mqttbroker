@@ -1,4 +1,4 @@
-package com.stormpx.store.file;
+package com.stormpx.store;
 
 import io.vertx.core.json.JsonObject;
 

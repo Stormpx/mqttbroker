@@ -13,22 +13,19 @@ import com.stormpx.mqtt.MqttVersion;
 import com.stormpx.mqtt.ReasonCode;
 import com.stormpx.server.*;
 import com.stormpx.store.MessageLink;
-import com.stormpx.store.SessionState;
-import com.stormpx.store.file.FileDataStorage;
 import com.stormpx.store.DataStorage;
-import com.stormpx.store.TimeoutWill;
 import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
+import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.PemKeyCertOptions;
 import io.vertx.core.shareddata.LocalMap;
-import io.vertx.core.shareddata.Lock;
 
 import java.time.Instant;
 import java.util.*;
@@ -44,6 +41,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     private TopicFilter topicFilter;
 
     protected DataStorage dataStorage;
+    protected Dispatcher dispatcher;
 
     protected Authenticator authenticator;
 
@@ -60,8 +58,9 @@ public class MqttBrokerVerticle extends AbstractVerticle {
            onConfigRefresh(message.body());
         });
         willTimerMap=new HashMap<>();
+        this.dispatcher=new Dispatcher(vertx);
+        this.dataStorage=new DataStorage(vertx);
         initAuth()
-                .compose(v->initStore())
                 .compose(v->startServer())
                 .setHandler(startFuture);
     }
@@ -87,12 +86,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         return Future.failedFuture("can't find authenticator :"+auth);
     }
 
-    protected Future<Void> initStore(){
-        Promise<Void> promise=Promise.promise();
-        this.dataStorage=new FileDataStorage(vertx);
-        this.dataStorage.init(config()).setHandler(promise);
-        return promise.future();
-    }
 
     private Future<Void> startServer(){
 
@@ -327,6 +320,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
         var ref=new Object(){
             TimeoutStream updateSessionExpiryStream;
+            MessageConsumer<UnSafeJsonObject> messageConsumer;
         };
         mqttContext.subscribeHandler(message -> onSubscribe(mqttContext,message))
                 .unSubscribeHandler(message -> onUnSubscribe(mqttContext,message))
@@ -341,11 +335,29 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 }).closeHandler(v -> {
                     if (ref.updateSessionExpiryStream != null)
                         ref.updateSessionExpiryStream.cancel();
+                    if (ref.messageConsumer!=null)
+                        ref.messageConsumer.unregister();
                     onClose(mqttContext);
                 });
 
 
+
         String clientId = mqttContext.session().clientIdentifier();
+        ref.messageConsumer=vertx.eventBus().<UnSafeJsonObject>localConsumer("_"+clientId+"_"+mqttContext.id()+"message_")
+                .handler(message->{
+                    try {
+                        JsonObject body = message.body().getJsonObject();
+                        String id = body.getString("id");
+                        if (id==null){
+                            Integer packetId = body.getInteger("packetId");
+                            mqttContext.publishRelease(packetId,ReasonCode.SUCCESS,null,null);
+                        }else {
+                            sendToClient(mqttContext, body);
+                        }
+                    } catch (Exception e) {
+                        mqttContext.handleException(e);
+                    }
+                });
         handleCleanSession(mqttContext)
                 .onFailure(t->{
                     logger.error("client:"+clientId+" fetch session fail :{}",t.getMessage());
@@ -355,11 +367,13 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 .onSuccess(b->{
                     if (mqttContext.sessionExpiryInterval()>1) {
                         ref.updateSessionExpiryStream=vertx.periodicStream((mqttContext.sessionExpiryInterval()-1)*1000)
-                                .handler(id->dataStorage.storeSessionState(new SessionState(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval())));
+                                .handler(id->
+                                        dataStorage.setExpiryTimestamp(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval()));
                     }
                     mqttServer.holder().add(mqttContext);
                     logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
                     mqttContext.accept(b);
+                    dispatcher.sessionAccept(clientId,!b);
                 });
     }
 
@@ -391,14 +405,14 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             //fetch will
             return dataStorage.fetchWillMessage(clientId)
                     //if will is null the client may still connect
-                    .compose(json-> tryPublishWill(clientId,json))
+                    .onSuccess(json-> tryPublishWill(clientId,json))
                     .map(false);
         }else{
-            return dataStorage.fetchSessionState(clientId)
-                    .map(state-> {
-                        if (state==null)
+            return dataStorage.getExpiryTimestamp(clientId)
+                    .map(expiryTimestamp-> {
+                        if (expiryTimestamp==null)
                             return false;
-                        return Instant.now().getEpochSecond()<state.getExpiryTimestamp();
+                        return Instant.now().getEpochSecond()<expiryTimestamp;
                     });
         }
     }
@@ -492,28 +506,26 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                         }
                         //get retain message
                         if (!topic.isEmpty()) {
-                            dataStorage.filterMatchMessage(topic).setHandler(r -> {
-                                if (r.failed()) {
-                                    logger.info("client:{} filterMatchMessage fail ", mqttContext.session().clientIdentifier());
-                                    mqttContext.handleException(r.cause());
-                                    return;
-                                }
-                                JsonArray result = r.result();
-                                J.toJsonStream(result).forEach(jsonObject -> {
-                                    mqttSubscriptions.stream().filter(mqttSubscription -> TopicUtil.matches(mqttSubscription.getTopicFilter(), jsonObject.getString("topic"))).max(Comparator.comparingInt(m -> m.getQos().value())).ifPresent(mqttSubscription -> {
-                                        if (message.getSubscriptionIdentifier() != 0)
-                                            jsonObject.put("subscriptionId", Collections.singletonList(message.getSubscriptionIdentifier()));
+                            String address = UUID.randomUUID().toString();
+                            MessageConsumer<UnSafeJsonObject> messageConsumer = vertx.eventBus().localConsumer(address);
+                            messageConsumer.handler(msg->{
+                                JsonObject jsonObject = msg.body().getJsonObject();
+                                mqttSubscriptions.stream().filter(mqttSubscription -> TopicUtil.matches(mqttSubscription.getTopicFilter(), jsonObject.getString("topic")))
+                                        .max(Comparator.comparingInt(m -> m.getQos().value()))
+                                        .ifPresent(mqttSubscription -> {
+                                            if (message.getSubscriptionIdentifier() != 0)
+                                                jsonObject.put("subscriptionId", Collections.singletonList(message.getSubscriptionIdentifier()));
 
-                                        jsonObject.put("qos", Math.min(mqttSubscription.getQos().value(), jsonObject.getInteger("qos")));
-                                        jsonObject.put("retain", true);
-                                        sendToClient(mqttContext, jsonObject);
-                                    });
-                                });
+                                            jsonObject.put("qos", Math.min(mqttSubscription.getQos().value(), jsonObject.getInteger("qos")));
+                                            jsonObject.put("retain", true);
+                                            sendToClient(mqttContext, jsonObject);
+                                        });
                             });
+                            dispatcher.matchRetainMessage(address,topic);
                         }
                         //store subscribe
                         if (!subscriptions.isEmpty()) {
-                            dataStorage.storeSubscription(mqttContext.session().clientIdentifier(), subscriptions, message.getSubscriptionIdentifier());
+                            dispatcher.subscribeTopic(mqttContext.session().clientIdentifier(), subscriptions, message.getSubscriptionIdentifier());
                         }
                         //ack
                         mqttContext.subscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, authResult.getPairList(), null);
@@ -546,7 +558,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         String clientId = mqttContext.session().clientIdentifier();
         List<ReasonCode> reasonCodes = mqttSubscriptions.stream().peek(s -> topicFilter.unSubscribe(s, clientId)).peek(s -> logger.debug("client:{} unSubscribe topic:{}", clientId, s)).map(s -> ReasonCode.SUCCESS).collect(Collectors.toList());
 
-        dataStorage.deleteSubscription(mqttContext.session().clientIdentifier(), mqttSubscriptions);
+        dispatcher.unSubscribeTopic(mqttContext.session().clientIdentifier(), mqttSubscriptions);
 
         mqttContext.unSubscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, null, null);
     }
@@ -607,9 +619,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     }
 
     private void onClose(MqttContext mqttContext){
-
-
-
         MqttSession session = mqttContext.session();
         String clientId = session.clientIdentifier();
         session.setExpiryTime();
@@ -621,13 +630,16 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             if (!will.isWillFlag() || (mqttContext.sessionExpiryInterval() != 0 && will.getWillDelayInterval() != 0))
                 return;
 
-            //as publish message
+            //publish message
             tryPublishWill(clientId, will.toJson());
             return;
         }
+
+//        mqttServer.holder().remove(mqttContext.session().clientIdentifier());
+
         //save expiry Timestamp
         if (mqttContext.sessionExpiryInterval() != 0)
-            dataStorage.storeSessionState(new SessionState(clientId, session.expiryTime()));
+            dataStorage.setExpiryTimestamp(clientId, session.expiryTime());
         else {
             topicFilter.clearSubscribe(clientId);
             dataStorage.clearSession(clientId);
@@ -660,7 +672,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     }
 
     private void dispatcherEvent(JsonObject message) {
-        vertx.eventBus().publish("_mqtt_message_dispatcher", UnSafeJsonObject.wrapper(message));
+        dispatcher.dispatcherMessage(message);
     }
 
     private void dispatcherMessage(JsonObject message){
@@ -690,66 +702,59 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         if (matches.isEmpty()&&!retain){
             return;
         }
-        dataStorage.storeMessage(message)
-                .setHandler(arr->{
-                    if (arr.succeeded()){
-                        for (TopicFilter.SubscribeInfo subscribeInfo : matches) {
-                            MqttContext mqttContext = holder.get(subscribeInfo.getClientId());
-                            if (mqttContext == null) continue;
 
-                            TopicFilter.Entry maxQosEntry=null;
-                            JsonArray subscriptionIds=new JsonArray();
+        for (TopicFilter.SubscribeInfo subscribeInfo : matches) {
+            MqttContext mqttContext = holder.get(subscribeInfo.getClientId());
+            if (mqttContext == null) continue;
 
-                            for (TopicFilter.Entry e : subscribeInfo.getAllMatchSubscribe()) {
-                                //if isShare subscribe publish
-                                if (e.isShare()) {
-                                    if (!shareTopicSet.contains(e.getTopicFilterName()))
-                                        continue;
-                                    //share subscribe get lock
-                                    vertx.sharedData().getLockWithTimeout(e.getTopicFilterName()+id,40, ar->{
-                                        if (ar.succeeded()){
-                                            logger.debug("client:{} get lock success ",clientId);
+            TopicFilter.Entry maxQosEntry=null;
+            JsonArray subscriptionIds=new JsonArray();
 
-                                            sendToClient(mqttContext,message.copy()
-                                                    .put("qos",Math.min(qos.value(),e.getMqttQoS().value()))
-                                                    .put("retain", e.isRetainAsPublished() && retain)
-                                                    .put("subscriptionId",e.getSubscriptionIdentifier()!=0?Collections.singletonList(e.getSubscriptionIdentifier()): J.EMPTY_ARRAY));
-                                            //                            vertx.setTimer(40,v->ar.result().release());
+            for (TopicFilter.Entry e : subscribeInfo.getAllMatchSubscribe()) {
+                //if isShare subscribe publish
+                if (e.isShare()) {
+                    if (!shareTopicSet.contains(e.getTopicFilterName()))
+                        continue;
+                    //share subscribe get lock
+                    vertx.sharedData().getLockWithTimeout(e.getTopicFilterName()+id,40, ar->{
+                        if (ar.succeeded()){
+                            logger.debug("client:{} get lock success ",clientId);
 
-                                        }else{
-                                            logger.debug("client:{} get lock fail cause:{}",clientId,ar.cause());
-                                        }
-                                    });
+                            sendToClient(mqttContext,message.copy()
+                                    .put("qos",Math.min(qos.value(),e.getMqttQoS().value()))
+                                    .put("retain", e.isRetainAsPublished() && retain)
+                                    .put("subscriptionId",e.getSubscriptionIdentifier()!=0?Collections.singletonList(e.getSubscriptionIdentifier()): J.EMPTY_ARRAY));
+                            //                            vertx.setTimer(40,v->ar.result().release());
 
-                                    continue;
-                                }
-
-                                if (maxQosEntry==null||e.getMqttQoS().value()>maxQosEntry.getMqttQoS().value()) {
-                                    maxQosEntry = e;
-                                }
-
-                                if (e.getSubscriptionIdentifier()!=0) {
-                                    subscriptionIds.add(e.getSubscriptionIdentifier());
-                                }
-                            }
-
-                            if (maxQosEntry!=null) {
-                                if (maxQosEntry.isNoLocal() && clientId.equals(mqttContext.session().clientIdentifier()))
-                                    continue;
-
-                                sendToClient(mqttContext,message.copy()
-                                        .put("qos",Math.min(qos.value(),maxQosEntry.getMqttQoS().value()))
-                                        .put("retain", maxQosEntry.isRetainAsPublished() && retain)
-                                        .put("subscriptionId",subscriptionIds));
-
-                            }
-
+                        }else{
+                            logger.debug("client:{} get lock fail cause:{}",clientId,ar.cause());
                         }
-                    }else{
-                        logger.error("store message"+message+"fail",arr.cause());
+                    });
 
-                    }
-                });
+                    continue;
+                }
+
+                if (maxQosEntry==null||e.getMqttQoS().value()>maxQosEntry.getMqttQoS().value()) {
+                    maxQosEntry = e;
+                }
+
+                if (e.getSubscriptionIdentifier()!=0) {
+                    subscriptionIds.add(e.getSubscriptionIdentifier());
+                }
+            }
+
+            if (maxQosEntry!=null) {
+                if (maxQosEntry.isNoLocal() && clientId.equals(mqttContext.session().clientIdentifier()))
+                    continue;
+
+                sendToClient(mqttContext,message.copy()
+                        .put("qos",Math.min(qos.value(),maxQosEntry.getMqttQoS().value()))
+                        .put("retain", maxQosEntry.isRetainAsPublished() && retain)
+                        .put("subscriptionId",subscriptionIds));
+
+            }
+
+        }
 
     }
 
@@ -847,7 +852,12 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     }
 
     private Future<Void> writeUnFinishMessage(MqttContext mqttContext){
-        return dataStorage.fetchUnReleaseMessage(mqttContext.session().clientIdentifier()).setHandler(ar -> {
+        String clientId = mqttContext.session().clientIdentifier();
+        String id = mqttContext.id();
+        String address="_"+clientId+"_"+id+"message_";
+        dispatcher.resendMessage(address,clientId);
+        return Future.succeededFuture();
+        /*return dataStorage.fetchUnReleaseMessage(mqttContext.session().clientIdentifier()).setHandler(ar -> {
             if (ar.succeeded()){
                 JsonArray array = ar.result();
                 array.stream()
@@ -868,7 +878,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 logger.info("fetch unFinish message fail:{} ",ar.cause().getMessage());
                 mqttContext.handleException(ar.cause());
             }
-        }).map((Void)null);
+        }).map((Void)null)*/
     }
 
     private Future<Void> addUnacknowledgedPacketId(MqttContext mqttContext){
@@ -894,47 +904,19 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             willJson.put("expiryTimestamp", Instant.now().getEpochSecond()+messageExpiryInterval);
         }
         willJson.remove("delayInterval");
-        return dataStorage.storeMessage(willJson)
+        willJson.put("id",UUID.randomUUID().toString().replaceAll("-",""));
+        dispatcherEvent(willJson);
+        dataStorage.dropWillMessage(clientId);
+        /*return dataStorage.storeMessage(willJson)
                 .compose(id->{
                     willJson.put("id",id);
                     dispatcherEvent(willJson);
-                    dataStorage.deleteTimeoutWill(clientId);
                     dataStorage.dropWillMessage(clientId);
                     return Future.succeededFuture();
-                });
+                });*/
+        return Future.succeededFuture();
     }
 
-    private void processTimeoutWill(){
-
-        dataStorage.fetchFirstTimeoutWill()
-                .setHandler(ar->{
-                    if (ar.failed()){
-                        logger.error("fetch timeout will fail ",ar.cause());
-                        return;
-                    }
-                    TimeoutWill timeoutWill = ar.result();
-                    if (timeoutWill==null)
-                        return;
-                    if (Instant.now().getEpochSecond()<timeoutWill.getDispatcherTime()){
-                        return;
-                    }
-                    vertx.sharedData().getLockWithTimeout(timeoutWill.getClientId(),300,al->{
-                        if (al.succeeded()){
-                            Lock lock = al.result();
-                            dataStorage.fetchWillMessage(timeoutWill.getClientId())
-                                    .compose(willJson->tryPublishWill(timeoutWill.getClientId(),willJson))
-                                    .setHandler(r->{
-                                        if (r.failed()){
-                                            logger.error("try publish will fail client:{} ",timeoutWill.getClientId(),r.cause());
-                                        }
-                                        lock.release();
-                                    });
-                        }else{
-                            logger.error("process will fail ",al.cause().getMessage());
-                        }
-                    });
-                });
-    }
 
 
     @Override
@@ -945,8 +927,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         if (willTimer!=null){
             willTimer.cancel();
         }
-        if (dataStorage!=null)
-            dataStorage.close();
         stopFuture.complete();
     }
 

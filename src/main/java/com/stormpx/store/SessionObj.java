@@ -1,10 +1,9 @@
-package com.stormpx.store.file;
+package com.stormpx.store;
 
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 public class SessionObj {
     private String clientId;

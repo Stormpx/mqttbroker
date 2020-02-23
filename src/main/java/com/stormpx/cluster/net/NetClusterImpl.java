@@ -203,31 +203,26 @@ public class NetClusterImpl implements NetCluster {
         if (!netSockets.contains(netSocket))
             return ;
 
-        Buffer buffer = Json.encodeToBuffer(voteResponse);
-
-        netSocket.write(Buffer.buffer(5+buffer.length()).appendByte((byte) MessageType.VOTERESPONSE.getValue()).appendInt(buffer.length()).appendBuffer(buffer));
+        Buffer buffer = RpcMessage.encode(MessageType.VOTERESPONSE, id, 0, Json.encodeToBuffer(voteResponse));
+        netSocket.write(buffer);
     }
 
     void appendEntriesResponse(NetSocket netSocket, AppendEntriesResponse appendEntriesResponse) {
         //check active
         if (!netSockets.contains(netSocket))
             return ;
-        Buffer buffer = Json.encodeToBuffer(appendEntriesResponse);
-        netSocket.write(Buffer.buffer(5+buffer.length()).appendByte((byte) MessageType.APPENDENTRIESRESPONSE.getValue()).appendInt(buffer.length()).appendBuffer(buffer));
+        Buffer buffer = RpcMessage.encode(MessageType.APPENDENTRIESRESPONSE, id, 0, Json.encodeToBuffer(appendEntriesResponse));
+        netSocket.write(buffer);
     }
 
     void rpcResponse(NetSocket netSocket,int requestId,boolean success,Buffer buffer){
         if (!netSockets.contains(netSocket))
             return ;
+        if (buffer==null)
+            buffer=Buffer.buffer();
 
-        ByteBuf byteBuf = Unpooled.buffer(9)
-                .writeByte(MessageType.RESPONSE.getValue())
-                .writeInt(requestId)
-                .writeInt(buffer.length()+1)
-                .writeByte(success?1:0);
-        netSocket.write(Buffer.buffer(Unpooled.compositeBuffer()
-                .addComponent(true,byteBuf)
-                .addComponent(true,buffer.getByteBuf())));
+        Buffer encode = RpcMessage.encode(MessageType.RESPONSE, id, requestId, Buffer.buffer().appendByte((byte) (success ? 1 : 0)).appendBuffer(buffer));
+        netSocket.write(encode);
 
     }
 
@@ -235,8 +230,8 @@ public class NetClusterImpl implements NetCluster {
         if (!netSockets.contains(netSocket))
             return ;
 
-        Buffer buffer = Json.encodeToBuffer(readIndexResponse);
-        netSocket.write(Buffer.buffer(5+buffer.length()).appendByte((byte) MessageType.READINDEXRESPONSE.getValue()).appendInt(buffer.length()).appendBuffer(buffer));
+        Buffer buffer = RpcMessage.encode(MessageType.READINDEXRESPONSE, id, 0, Json.encodeToBuffer(readIndexResponse));
+        netSocket.write(buffer);
     }
 
     @Override
@@ -306,7 +301,7 @@ public class NetClusterImpl implements NetCluster {
         if (clusterNode==null)
             return;
 
-        Buffer buffer = RpcMessage.encode(MessageType.READINDEXREQUEST, id, 0, Buffer.buffer(id,"utf-8"));
+        Buffer buffer = RpcMessage.encode(MessageType.READINDEXREQUEST, this.id, 0, Buffer.buffer(id,"utf-8"));
         clusterNode.send(buffer);
     }
 

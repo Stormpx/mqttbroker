@@ -1,4 +1,4 @@
-package com.stormpx.store.file;
+package com.stormpx.store;
 
 import com.stormpx.kit.MqttCodecUtil;
 import com.stormpx.mqtt.MqttProperty;

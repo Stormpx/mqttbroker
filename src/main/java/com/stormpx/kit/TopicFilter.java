@@ -103,6 +103,10 @@ public class TopicFilter {
         return list;
     }*/
 
+    public boolean anyMatch(String topic){
+        return topics.keySet().stream().anyMatch(t->TopicUtil.matches(t,topic));
+    }
+
     public Collection<SubscribeInfo> matches(String topic){
         BiConsumer<Map<String,SubscribeInfo>, Entry> consumer=(map, e)->{
             var subscribeInfo = map.computeIfAbsent(e.getClientId(), (k) -> new SubscribeInfo(e.getClientId()));

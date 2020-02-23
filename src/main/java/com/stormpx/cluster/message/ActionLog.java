@@ -47,6 +47,11 @@ public class ActionLog  {
     }
 
 
+    public static ActionLog delSession(String nodeId,String clientId){
+        ActionLog actionLog = new ActionLog().setAction(Action.SAVESESSION.value);
+        return actionLog.setArgs(Arrays.asList(nodeId,clientId));
+    }
+
 
     public String getAction() {
         return action;
@@ -76,7 +81,8 @@ public class ActionLog  {
         UNSUBSCRIBE("unSubscribe"),
         SAVEMESSAGE("saveMessage"),
         DELMESSAGE("delMessage"),
-        SAVESESSION("saveSession")
+        SAVESESSION("saveSession"),
+        DELSESSION("delSession")
         ;
 
         private String value;

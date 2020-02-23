@@ -6,7 +6,7 @@ public enum RequestType {
     MESSAGE(2),
     TAKENOVER(3),
     PUBLISH(4),
-    ADDLOG(5);
+    ADDLOG(8);
 
 
     private int value;

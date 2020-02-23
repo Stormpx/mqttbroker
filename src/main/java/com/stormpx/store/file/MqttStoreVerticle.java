@@ -2,6 +2,9 @@ package com.stormpx.store.file;
 
 import com.stormpx.kit.MqttCodecUtil;
 import com.stormpx.kit.TopicUtil;
+import com.stormpx.store.MessageObj;
+import com.stormpx.store.ObjCodec;
+import com.stormpx.store.SessionObj;
 import com.stormpx.store.TimeoutWill;
 import com.stormpx.kit.J;
 import com.stormpx.Constants;
@@ -90,7 +93,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
                             case "receive":
                                 receive((JsonObject)body);
                                 break;
-                            case "storeSubscription":
+                            case "addSubscription":
                                 storeSubscription((JsonObject) body);
                                 break;
                             case "fetchSubscription":
@@ -117,17 +120,8 @@ public class MqttStoreVerticle extends AbstractVerticle {
                             case "dropWillMessage":
                                 dropWillMessage((JsonObject)body);
                                 break;
-                            case "filterMatchMessage":
+                            case "retainMap":
                                 message.reply(filterMatchMessage((JsonObject)body));
-                                break;
-                            case "addTimeoutWill":
-                                addTimeoutWill((JsonObject)body);
-                                break;
-                            case "deleteTimeoutWill":
-                                deleteTimeoutWill((JsonObject)body);
-                                break;
-                            case "fetchFirstTimeoutWill":
-                                message.reply(fetchFirstTimeoutWill());
                                 break;
                         }
                     });

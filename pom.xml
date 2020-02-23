@@ -53,6 +53,13 @@
         </dependency>
 
         <dependency>
+            <groupId>org.rocksdb</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <version>5.5.1</version>
+        </dependency>
+
+
+        <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-core</artifactId>
             <version>1.2.3</version>
@@ -64,12 +71,6 @@
         </dependency>
 
 
-        <!-- <dependency>
-             <groupId>org.apache.logging.log4j</groupId>
-             <artifactId>log4j-slf4j-impl</artifactId>
-             <scope>runtime</scope>
-             <version>2.11.0</version>
-         </dependency>-->
         <dependency>
             <groupId>com.hivemq</groupId>
             <artifactId>hivemq-mqtt-client</artifactId>

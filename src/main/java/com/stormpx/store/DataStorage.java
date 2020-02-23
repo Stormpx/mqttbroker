@@ -1,121 +1,139 @@
 package com.stormpx.store;
 
-import com.stormpx.cluster.ClusterState;
-import com.stormpx.cluster.LogEntry;
-import com.stormpx.mqtt.MqttSubscription;
+import com.stormpx.store.file.MqttStoreVerticle;
+import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.core.eventbus.DeliveryOptions;
+import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
-public interface DataStorage {
+public class DataStorage  {
+    private final static String SOTRE_ADDRESS="_mqtt_store_";
 
-    Future<Void> init(JsonObject config);
+    private Vertx vertx;
+
+    public DataStorage(Vertx vertx) {
+        this.vertx = vertx;
+    }
+
+    public void clearSession(String clientId) {
+        DeliveryOptions CLEAR_SESSION = new DeliveryOptions().addHeader("action", "clearSession");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),CLEAR_SESSION);
+    }
+
+    public void setExpiryTimestamp(String clientId, long expiryTimestamp) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "setExpiryTimestamp");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("expiryTimestamp",expiryTimestamp),deliveryOptions);
+    }
+
+    public Future<Long> getExpiryTimestamp(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "setExpiryTimestamp");
+
+        Promise<Long> promise=Promise.promise();
+        vertx.eventBus().<Long>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete(ar.result().body());
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
+    }
 
 
-    Future<Void> close();
+    public void link(MessageLink messageLink) {
+        if (messageLink==null)return;
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "link");
+        vertx.eventBus().publish(SOTRE_ADDRESS,messageLink.toJson(),deliveryOptions);
+    }
+
+    public void release(String clientId, int packetId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "release");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+    }
+
+    public void receive(String clientId, int packetId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "receive");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+    }
 
 
-    void saveState(JsonObject state);
+    public Future<JsonArray> fetchSubscription(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "fetchSubscription");
+        Promise<JsonArray> promise=Promise.promise();
+        vertx.eventBus().<JsonArray>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                Message<JsonArray> result = ar.result();
+                promise.complete(result.body());
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
+    }
 
-    Future<JsonObject> getState();
 
-    Future<List<LogEntry>> logs();
 
-    void saveLog(LogEntry logEntry);
+    public void addPacketId(String clientId, int packetId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "addPacketId");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+    }
 
-    void delLog(int start,int end);
 
-    /**
-     * delete all unReleaseMessage receivedPacketId subscription
-     * @param clientId
-     */
-    void clearSession(String clientId);
+    public Future<List<Integer>> unacknowledgedPacketId(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "unacknowledgedPacketId");
+        Promise<List<Integer>> promise=Promise.promise();
+        vertx.eventBus().<JsonArray>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                Message<JsonArray> result = ar.result();
+                JsonArray body = result.body();
+                if (body==null){
+                    promise.complete(Collections.emptyList());
+                }else {
+                    promise.complete(body.stream().filter(o->o instanceof Integer).map(o->(Integer)o).collect(Collectors.toList()));
+                }
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
+    }
 
-    /**
-     * return id
-     * @param message
-     * @return
-     */
-    Future<String> storeMessage(JsonObject message);
+    public void removePacketId(String clientId, int packetId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "removePacketId");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+    }
 
-    /**
-     * store expiryTimestamp second
-     * @param sessionState
-     */
-    void storeSessionState(SessionState sessionState);
+    public void storeWillMessage(String clientId, JsonObject will) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "storeWillMessage");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("will",will),deliveryOptions);
+    }
 
-    /**
-     * fetch timestamp
-     * @return
-     */
-    Future<SessionState> fetchSessionState(String clientId);
+    public Future<JsonObject> fetchWillMessage(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "fetchWillMessage");
+        Promise<JsonObject> promise=Promise.promise();
+        vertx.eventBus().<JsonObject>request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                Message<JsonObject> message = ar.result();
+                promise.complete(message.body());
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
+    }
 
-    /**
-     * unack uncomp unsend message
-     * @param clientId
-     * @return
-     */
-    Future<JsonArray> fetchUnReleaseMessage(String clientId);
-
-    /**
-     *
-     * @param clientId
-     * @param id
-     */
-    void addPendingId(String clientId,String id);
-
-    /**
-     * send on publish message
-     * @param messageLink
-     */
-    void link(MessageLink messageLink);
-
-    /**
-     * send on publish message
-     * release packetId
-     * @param clientId
-     * @param packetId
-     */
-    void release(String clientId, int packetId);
-
-    /**
-     * send on publish message
-     * on qos2 receive
-     * @param clientId
-     * @param packetId
-     */
-    void receive(String clientId,int packetId);
-
-    void storeSubscription(String clientId, List<MqttSubscription> mqttSubscriptions, Integer identifier);
-
-    Future<JsonArray> fetchSubscription(String clientId);
-
-    void deleteSubscription(String clientId,List<String> topics);
-
-    void addPacketId(String clientId, int packetId);
-
-    Future<List<Integer>> unacknowledgedPacketId(String clientId);
-
-    void removePacketId(String clientId, int packetId);
-
-    void storeWillMessage(String clientId, JsonObject will);
-
-    Future<JsonObject> fetchWillMessage(String clientId);
-
-    void dropWillMessage(String clientId);
-
-    Future<JsonArray> filterMatchMessage(List<String> topicFilters);
-
-    @Deprecated
-    default void addTimeoutWill(TimeoutWill timeoutWill){}
-
-    @Deprecated
-    default void deleteTimeoutWill(String clientId){}
-    @Deprecated
-    default Future<TimeoutWill> fetchFirstTimeoutWill(){
-        return null;
+    public void dropWillMessage(String clientId) {
+        DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "dropWillMessage");
+        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions);
     }
 
 

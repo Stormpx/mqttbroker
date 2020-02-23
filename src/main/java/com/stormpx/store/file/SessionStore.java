@@ -1,5 +1,6 @@
 package com.stormpx.store.file;
 
+import com.stormpx.store.SessionObj;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
@@ -8,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 public class SessionStore {
-    private Map<String,SessionObj> sessionObjMap;
+    private Map<String, SessionObj> sessionObjMap;
 
     public SessionStore() {
         this.sessionObjMap = new ConcurrentHashMap<>();
