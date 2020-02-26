@@ -90,7 +90,10 @@ public class ClusterNodeImpl implements ClusterNode {
     public NodeState state() {
         return nodeState;
     }
-
+    @Override
+    public boolean isActive(){
+        return active;
+    }
 
     @Override
     public void send(Buffer buffer) {
@@ -109,10 +112,6 @@ public class ClusterNodeImpl implements ClusterNode {
 
     public SocketAddress getSocketAddress() {
         return socketAddress;
-    }
-
-    public boolean isActive() {
-        return active;
     }
 
 

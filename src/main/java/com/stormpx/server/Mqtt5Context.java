@@ -97,8 +97,6 @@ public class Mqtt5Context extends AbstractMqttContext {
             MqttInFlightMessage flightMessage = inFlightMap.get(pubRecPacket.getPacketIdentifier());
             if (flightMessage == null) {
                 publishRelease( pubRecPacket.getPacketIdentifier(),ReasonCode.PACKET_IDENTIFIER_NOT_FOUND,null,null);
-            } else {
-                publishRelease( pubRecPacket.getPacketIdentifier(),ReasonCode.SUCCESS,null,null);
             }
         }
         //call super

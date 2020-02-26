@@ -14,6 +14,7 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
+import java.io.File;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,10 +25,17 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     private Vertx vertx;
     private RocksDB rocksDB;
 
-    public RocksDBClusterDataStore(Vertx vertx,String dir) throws RocksDBException {
+    public RocksDBClusterDataStore(Vertx vertx,String dir,String id) throws RocksDBException {
         this.vertx=vertx;
-        String path = Paths.get(dir).normalize().toString() + "/meta_data";
+        String path = Paths.get(dir).normalize().toString() + "/meta_data/"+id;
+        create(new File(path));
         this.rocksDB=RocksDB.open(path);
+    }
+
+    private void create(File file){
+        if (!file.getParentFile().exists())
+            create(file.getParentFile());
+        file.mkdir();
     }
 
     @Override
@@ -36,7 +44,6 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
             try {
                 rocksDB.put("requestId".getBytes(),String.valueOf(requestId).getBytes());
             } catch (RocksDBException e) {
-                e.printStackTrace();
                 logger.error("set requestId fail",e);
             }
         },ar->{
@@ -82,6 +89,10 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         vertx.executeBlocking(p->{
             try {
                 byte[] value = rocksDB.get("state".getBytes());
+                if (value==null){
+                    p.complete();
+                    return;
+                }
                 JsonObject jsonObject = (JsonObject) Json.decodeValue(Buffer.buffer(value));
                 p.complete(jsonObject);
             } catch (RocksDBException e) {
@@ -105,7 +116,9 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
                     LogEntry logEntry = Json.decodeValue(Buffer.buffer(rocksIterator.value()), LogEntry.class);
                     logEntries.add(logEntry);
                 }
+                rocksIterator.next();
             }
+            rocksIterator.close();
             p.complete(logEntries);
         },promise);
 

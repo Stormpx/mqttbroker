@@ -5,24 +5,23 @@ import com.stormpx.cluster.MqttCluster;
 import com.stormpx.cluster.MqttStateService;
 import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.cluster.message.ProMessage;
-import com.stormpx.cluster.message.RequestType;
 import com.stormpx.kit.J;
 import com.stormpx.kit.TopicFilter;
 import com.stormpx.kit.TopicUtil;
 import com.stormpx.kit.UnSafeJsonObject;
-import com.stormpx.store.ClusterDataStore;
-import com.stormpx.store.MessageStore;
-import com.stormpx.store.SessionStore;
-import com.stormpx.store.MessageObj;
+import com.stormpx.store.*;
+import com.stormpx.store.rocksdb.RocksDBClusterDataStore;
+import com.stormpx.store.rocksdb.RocksDBMessageStore;
+import com.stormpx.store.rocksdb.RocksDBSessionStore;
 import io.netty.handler.codec.mqtt.MqttQoS;
-import io.vertx.core.AbstractVerticle;
-import io.vertx.core.CompositeFuture;
-import io.vertx.core.Future;
+import io.vertx.core.*;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -43,7 +42,21 @@ public class DispatcherVerticle extends AbstractVerticle {
     @Override
     public void start(Future<Void> startFuture) throws Exception {
 
+
         JsonObject config = Optional.ofNullable(config()).orElse(new JsonObject());
+
+        this.topicFilter=new TopicFilter();
+
+        String saveDir = config.getString(Constants.SAVE_DIR);
+        if (saveDir==null||saveDir.isBlank()){
+            startFuture.tryFail("save dir is empty");
+            return;
+        }
+        this.messageStore=new RocksDBMessageStore(vertx,saveDir);
+        this.sessionStore=new RocksDBSessionStore(vertx,saveDir);
+
+
+
         JsonObject cluster = config.getJsonObject("cluster");
         String id = cluster.getString("id");
         Integer port = cluster.getInteger("port");
@@ -53,21 +66,51 @@ public class DispatcherVerticle extends AbstractVerticle {
 
         }else {
             //cluster enable
+            this.clusterDataStore=new RocksDBClusterDataStore(vertx,saveDir,id);
             this.stateService=new MqttStateService(vertx,messageStore,sessionStore);
-            this.stateService.publishHandler(this::dispatcherEvent)
-                            .takeoverHandler(this::takenOverSession);
-            this.clusterClient=new ClusterClient(vertx,stateService);
+
+//            this.stateService.addHandler("/store/sync",this::);
+//            this.stateService.addHandler("/session/sync",);
+            this.stateService.addHandler("/session",this::requestSession);
+            this.stateService.addHandler("/message",this::requestMessage);
+            this.stateService.addHandler("/takenover",this::takenOverSession);
+            this.stateService.addHandler("/dispatcher",this::dispatcherMsg);
+
+            this.clusterClient=new ClusterClient(vertx,stateService,messageStore,clusterDataStore);
             this.mqttCluster=new MqttCluster(vertx,cluster,clusterDataStore,stateService,clusterClient);
             this.cluster=true;
         }
+
+        vertx.eventBus().<String>localConsumer("_client_session_present")
+                .handler(message->{
+                    String clientId = message.body();
+                    sessionPresent(clientId)
+                            .setHandler(ar->{
+                               if (ar.succeeded()){
+                                   message.reply(ar.result());
+                               }else{
+                                   message.fail(500,ar.cause().getMessage());
+                               }
+                            });
+                });
+
 
         vertx.eventBus().<JsonObject>localConsumer("_client_accept_")
                 .handler(message->{
                     JsonObject body = message.body();
                     String clientId = body.getString("clientId");
                     Boolean cleanSession = body.getBoolean("cleanSession",false);
-                    clusterClient.propose(clusterClient.nextRequestId(),ActionLog.saveSession(mqttCluster.id(),clientId, cleanSession));
+
+                    clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveSession(mqttCluster.id(),clientId, cleanSession));
                 });
+
+
+        vertx.eventBus().<JsonObject>consumer("_mqtt_session_taken_over")
+                .handler(message->{
+                    JsonObject body = message.body();
+                    clusterClient.takenOverSession(body);
+                });
+
 
         vertx.eventBus().<UnSafeJsonObject>localConsumer("_message_dispatcher_")
                 .handler(message->{
@@ -78,15 +121,27 @@ public class DispatcherVerticle extends AbstractVerticle {
         vertx.eventBus().<JsonObject>localConsumer("_topic_subscribe_")
                 .handler(message->{
                     JsonObject body = message.body();
-                    topicSubscribe(body);
-                    message.reply(null);
+                    topicSubscribe(body).setHandler(ar->{
+                        if (ar.succeeded()){
+                            message.reply(null);
+                        }else{
+                            message.fail(500,ar.cause().getMessage());
+                        }
+                    });
                 });
 
         vertx.eventBus().<JsonObject>localConsumer("_topic_unSubscribe_")
                 .handler(message->{
                     JsonObject body = message.body();
-                    topicUnSubscribe(body);
-                    message.reply(null);
+                    topicUnSubscribe(body)
+                        .setHandler(ar->{
+                            if (ar.succeeded()){
+                                message.reply(null);
+                            }else{
+                                message.fail(500,ar.cause().getMessage());
+                            }
+                        });
+
                 });
 
         vertx.eventBus().<JsonObject>localConsumer("_retain_match_")
@@ -100,29 +155,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
                 });
 
-        vertx.eventBus().<String>localConsumer("_request_message")
-                .handler(message->{
 
-                });
-
-
-        vertx.eventBus().<String>localConsumer("_request_session")
-                .handler(message->{
-                    String clientId = message.body();
-
-                    stateService.fetchSessionIndex(clientId)
-                            .onSuccess(set->{
-                                if (set.isEmpty()||set.contains(mqttCluster.id())) {
-                                    message.reply(null);
-                                    return;
-                                }
-                                clusterClient.requestSession(clusterClient.nextRequestId(),new HashSet<>(set),clientId)
-                                        .onComplete(ar->{
-                                            message.reply(null);
-                                        });
-                            });
-
-                });
 
         vertx.eventBus().<JsonObject>localConsumer("_message_resend_")
                 .handler(message->{
@@ -142,78 +175,14 @@ public class DispatcherVerticle extends AbstractVerticle {
                         return;
                     Object body = message.body();
                     logger.debug("receive request action:{} body:{}",action,body);
-                    switch (action){
-                        case "clearSession":
-                            clearSession((JsonObject) body);
-                            break;
-                        case "setExpiryTimestamp":
-                            setExpiryTimestamp((JsonObject) body);
-                            break;
-                        case "getExpiryTimestamp":
-                            getExpiryTimestamp((JsonObject)body)
-                                .setHandler(ar->{
-                                    if (ar.succeeded()){
-                                        message.reply(ar.result());
-                                    }else{
-                                        message.fail(500,"getExpiryTimestamp fail");
-                                    }
-                                })
-                                ;
-                            break;
-                        case "link":
-                            link((JsonObject)body);
-                            break;
-                        case "release":
-                            release((JsonObject)body);
-                            break;
-                        case "receive":
-                            receive((JsonObject)body);
-                            break;
-                        case "fetchSubscription":
-                            fetchSubscription((JsonObject)body)
-                                    .setHandler(ar->{
-                                        if (ar.succeeded()){
-                                            message.reply(ar.result());
-                                        }else {
-                                            message.fail(500,"fetchSubscription fail");
-                                        }
-                                    });
-
-                            break;
-                        case "addPacketId":
-                            addPacketId((JsonObject)body);
-                            break;
-                        case "unacknowledgedPacketId":
-                            unacknowledgedPacketId((JsonObject)body)
-                                    .setHandler(ar->{
-                                       if (ar.succeeded()){
-                                           message.reply(new JsonArray(ar.result()));
-                                       }else{
-                                           message.fail(500,"get unacknowledgedPacketId fail");
-                                       }
-                                    });
-
-                            break;
-                        case "removePacketId":
-                            removePacketId((JsonObject)body);
-                            break;
-                        case "storeWillMessage":
-                            storeWillMessage((JsonObject)body);
-                            break;
-                        case "fetchWillMessage":
-                            fetchWillMessage((JsonObject)body)
-                                    .setHandler(ar->{
-                                        if (ar.succeeded()){
-                                            message.reply(ar.result());
-                                        }else{
-                                            message.fail(500,"fetchWillMessage fail");
-                                        }
-                                    });
-                            break;
-                        case "dropWillMessage":
-                            dropWillMessage((JsonObject)body);
-                            break;
-                    }
+                    storeOperation(action, (JsonObject) body)
+                        .setHandler(ar->{
+                            if (ar.succeeded()){
+                                message.reply(ar.result());
+                            }else{
+                                message.fail(500,ar.cause().getMessage());
+                            }
+                        });
                 });
 
 
@@ -222,60 +191,40 @@ public class DispatcherVerticle extends AbstractVerticle {
             this.mqttCluster.start().setHandler(startFuture);
         else
             startFuture.complete();
+
+
     }
 
-    private Future<JsonObject> fetchWillMessage(JsonObject body) {
-        String clientId = body.getString("clientId");
-        return sessionStore.getWill(clientId);
-    }
-
-    private void resendUnReleaseMessage(String address,String clientId) {
-        sessionStore.links(clientId)
-                .onFailure(t->logger.error("resendUnReleaseMessage fail",t))
-                .onSuccess(list->{
-                    for (JsonObject jsonObject : list) {
-                        String id = jsonObject.getString("id");
-                        if (id==null){
-                            if (jsonObject.getInteger("packetId")!=null){
-                                vertx.eventBus().send(address,UnSafeJsonObject.wrapper(jsonObject));
-                            }
-                        }else{
-                            messageStore.get(id)
-                                    .onFailure(t->logger.error("get message: {} fail cause:{}",id,t.getMessage()))
-                                    .onSuccess(msgObj->{
-                                        if (msgObj!=null) {
-                                            JsonObject msg = msgObj.getMessage();
-                                            JsonObject message = msg.copy().mergeIn(jsonObject);
-                                            vertx.eventBus().send(address,UnSafeJsonObject.wrapper(message.put("dup",true)));
-                                        }
-                                        else {
-                                            if (!cluster) {
-                                                sessionStore.release(clientId, jsonObject.getInteger("packetId"));
-                                            } else{
-                                                stateService.fetchMessageIndex(Set.of(id))
-                                                        .onSuccess(map->{
-                                                            Set<String> set = map.get(id);
-                                                            if (set.isEmpty()){
-                                                               sessionStore.release(clientId, jsonObject.getInteger("packetId"));
-                                                               return;
-                                                           }
-                                                           clusterRequestAndSend(address,set,id,jsonObject);
-                                                        });
-                                            }
-                                        }
-                                    });
-                        }
-                    }
-                });
-    }
-
-    private void clusterRequestAndSend(String address,Set<String> nodeIds, String id,JsonObject link){
-        clusterClient.requestMessage(clusterClient.nextRequestId(),nodeIds,id)
-                .onFailure(t->logger.error("request message fail",t))
-                .onSuccess(messageObj->{
-                    JsonObject message = messageObj.getMessage();
-                    vertx.eventBus().send(address,message.copy().mergeIn(link).put("dup",true));
-                });
+    private Future<?> storeOperation(String action,JsonObject body){
+        switch (action){
+            case "clearSession":
+                return clearSession(body);
+            case "setExpiryTimestamp":
+                return setExpiryTimestamp(body);
+            case "getExpiryTimestamp":
+                return getExpiryTimestamp(body);
+            case "link":
+                return link(body);
+            case "release":
+                return release(body);
+            case "receive":
+                return receive(body);
+            case "fetchSubscription":
+                return fetchSubscription(body);
+            case "addPacketId":
+                return addPacketId(body);
+            case "unacknowledgedPacketId":
+                return unacknowledgedPacketId(body).map(JsonArray::new);
+            case "removePacketId":
+                return removePacketId(body);
+            case "storeWillMessage":
+                return storeWillMessage(body);
+            case "fetchWillMessage":
+                return fetchWillMessage(body);
+            case "dropWillMessage":
+                return dropWillMessage(body);
+        }
+        return Future.failedFuture("no action");
     }
 
 
@@ -291,21 +240,60 @@ public class DispatcherVerticle extends AbstractVerticle {
     }
 
 
-    private void clearSession(JsonObject body) {
+    private Future<Void> clearSession(JsonObject body) {
+        Promise<Void> promise=Promise.promise();
         String clientId = body.getString("clientId");
-        sessionStore.del(clientId);
-        if (cluster){
-            clusterClient.propose(clusterClient.nextRequestId(),ActionLog.delSession(mqttCluster.id(),clientId));
+        Future<Void> releaseLink = releaseLink(clientId);
+        Future<Void> future=sessionStore.fetchSubscription(clientId)
+                    .compose(array->{
+                        List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
+                        return topicUnSubscribe(new JsonObject().put("clientId",clientId).put("topics",topicFilter));
+                    });
 
-        }
+        CompositeFuture.all(releaseLink,future)
+                .onSuccess(v->{
+                    sessionStore.del(clientId).onComplete(promise);
+                    if (cluster){
+                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delSession(mqttCluster.id(),clientId));
+                    }
+                });
+        return promise.future();
     }
 
-    private void setExpiryTimestamp(JsonObject body) {
+    private Future<Void> releaseLink(String clientId){
+        Promise<Void> promise=Promise.promise();
+        sessionStore.links(clientId)
+                .onFailure(t->{
+                    logger.error("clear seesion : {} fail ",clientId);
+                    //                   clearSession(body);
+                })
+                .onSuccess(list->{
+                    List<Future> futures=list.stream().filter(json->json.containsKey("id"))
+                            .map(json->json.getString("id"))
+                            .map(id-> modifyRefCnt(id,-1))
+                            .collect(Collectors.toList());
+                    CompositeFuture.all(futures)
+                            .onComplete(ar->{
+                                if (ar.succeeded()){
+                                    promise.complete();
+                                }else{
+                                    promise.fail(ar.cause());
+                                }
+                            });
 
+                });
+
+        return promise.future();
+    }
+
+
+
+
+    private Future<Void> setExpiryTimestamp(JsonObject body) {
         String clientId = body.getString("clientId");
         Long expiryTimestamp = body.getLong("expiryTimestamp");
 
-        sessionStore.setExpiryTimestamp(clientId,expiryTimestamp);
+        return sessionStore.setExpiryTimestamp(clientId,expiryTimestamp);
 
     }
 
@@ -315,75 +303,83 @@ public class DispatcherVerticle extends AbstractVerticle {
         return sessionStore.getExpiryTimestamp(clientId);
     }
 
-    private void link(JsonObject link) {
+    private Future<Void> link(JsonObject link) {
         String clientId = link.getString("clientId");
         String id = link.getString("id");
-        sessionStore.addLink(clientId,link);
-        //todo
+        return sessionStore.addLink(clientId,link)
+                .compose(v->modifyRefCnt(id,+1))
+                .map((Void)null)
+                .onFailure(t->logger.error("link :{} fail",t,link));
+
     }
 
     /**
      * remove message link
      * @param body
      */
-    private void release(JsonObject body) {
+    private Future<Void> release(JsonObject body) {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
-        sessionStore.release(clientId, packetId)
-            .setHandler(ar->{
-                if (ar.succeeded()){
-                    String id = ar.result();
-                }else{
+        return sessionStore.release(clientId, packetId)
+                .compose(id->{
+                    if (id!=null){
+                        return modifyRefCnt(id, -1);
+                    }
+                    return Future.succeededFuture();
+                })
+                .map((Void)null)
+                .onFailure(t->logger.error("release client:{} link :{} fail",t,clientId,packetId));
 
-                }
-            });
-        //ackPacket id != null
-        /*if (id!=null)
-            publishMessageStore.add(id,-1);*/
     }
 
     /**
      * remove message link.id
      * @param body
      */
-    private void receive(JsonObject body) {
+    private Future<Void> receive(JsonObject body) {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
-        sessionStore.receive(clientId, packetId)
-                .setHandler(ar->{
-                    if (ar.succeeded()){
-                        String id = ar.result();
-                    }else{
-
+        return sessionStore.receive(clientId, packetId)
+                .compose(id->{
+                    if (id!=null){
+                        return modifyRefCnt(id, -1);
                     }
-                });
-        /*if (id!=null)
-            publishMessageStore.add(id,-1);*/
+                    return Future.succeededFuture();
+                })
+                .map((Void)null)
+                .onFailure(t->logger.error("set client :{} link receive :{} fail",t,clientId,packetId));
+
     }
 
-    private void addPacketId(JsonObject body) {
+
+
+    private Future<Void> addPacketId(JsonObject body) {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
-        sessionStore.addPacketId(clientId,packetId);
+        return sessionStore.addPacketId(clientId,packetId);
 
     }
 
-    private void removePacketId(JsonObject body) {
+    private Future<Void> removePacketId(JsonObject body) {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
-        sessionStore.removePacketId(clientId,packetId);
+        return sessionStore.removePacketId(clientId,packetId);
     }
 
+    private Future<JsonObject> fetchWillMessage(JsonObject body) {
+        String clientId = body.getString("clientId");
+        return sessionStore.getWill(clientId);
+    }
 
-    private void storeWillMessage(JsonObject body) {
+    private Future<Void> storeWillMessage(JsonObject body) {
         String clientId = body.getString("clientId");
         JsonObject will = body.getJsonObject("will");
-        sessionStore.saveWill(clientId,will);
+        return sessionStore.saveWill(clientId,will);
     }
 
-    private void dropWillMessage(JsonObject body) {
+    private Future<Void> dropWillMessage(JsonObject body) {
         String clientId = body.getString("clientId");
-        sessionStore.delWill(clientId);
+        return sessionStore.delWill(clientId);
     }
 
     private void messageDispatcher(JsonObject message){
@@ -401,21 +397,13 @@ public class DispatcherVerticle extends AbstractVerticle {
                             if (nodeId.equals(mqttCluster.id())){
                                 dispatcherEvent(json);
                             }else {
-                                mqttCluster.net().request(nodeId, requestId, new ProMessage(RequestType.PUBLISH, json).encode());
+                                mqttCluster.net().request(nodeId, requestId, new ProMessage("/dispatcher", json).encode());
                             }
                         }
                     });
         }
     }
 
-    private void takenOverSession(JsonObject body){
-        String clientId = body.getString("clientId");
-        Boolean sessionEnd = body.getBoolean("sessionEnd");
-        if (sessionEnd){
-            sessionStore.del(clientId);
-        }
-        vertx.eventBus().publish("_mqtt_session_taken_over", body);
-    }
 
 
     private void dispatcherEvent(JsonObject message) {
@@ -428,11 +416,22 @@ public class DispatcherVerticle extends AbstractVerticle {
             if (match || payloads.length != 0){
                 messageStore.set(id, new MessageObj(message));
                 if (cluster){
-                    clusterClient.propose(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,retain,topic,payloads.length));
+                    clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,retain,topic,payloads.length));
                 }
             }
             if (retain){
-                messageStore.putRetain(topic,payloads.length==0?null:id);
+                messageStore.putRetain(topic,payloads.length==0?null:id)
+                    .setHandler(ar->{
+                        if (ar.succeeded()){
+                            String result = ar.result();
+                            if (result!=null&&!result.equals(id)){
+                                modifyRefCnt(result,-1);
+                            }
+                            modifyRefCnt(id,+1);
+                        }else{
+                            logger.error("put retain topic:{} id:{} fail",ar.cause(),topic,id);
+                        }
+                    });
             }
 
         }
@@ -443,34 +442,107 @@ public class DispatcherVerticle extends AbstractVerticle {
 
     }
 
+    private Future<Integer> modifyRefCnt(String id, int delta){
+        return messageStore.addAndGetRefCnt(id,delta)
+                .onFailure(t->{})
+                .onSuccess(i->{
+                   if (i!=null&&i<=0){
+                       messageStore.del(id);
+                       if (cluster){
+                           clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delMessage(mqttCluster.id(),id));
+                       }
+                   }
+                });
+    }
 
-    private void topicSubscribe(JsonObject body){
+
+    private Future<Boolean> sessionPresent(String clientId){
+        Promise<Boolean> promise=Promise.promise();
+        if (!cluster){
+            localSession(clientId)
+                        .setHandler(promise);
+        }else{
+            stateService.fetchSessionIndex(clientId)
+                    .onSuccess(set->{
+                        if (set.isEmpty()) {
+                            promise.complete(false);
+                            return;
+                        }
+                        if (set.contains(mqttCluster.id())){
+                            localSession(clientId).setHandler(promise);
+                        }else {
+                            clusterClient.requestSession(clusterClient.nextRequestId(), new HashSet<>(set), clientId)
+                                    .onFailure(promise::fail)
+                                    .onSuccess(sessionObj->{
+                                        if (sessionObj == null || sessionObj.getExpiryTimestamp() == null) {
+                                            promise.complete(false);
+                                        } else {
+                                            Long expiryTimestamp = sessionObj.getExpiryTimestamp();
+                                            boolean isExpiry = Instant.now().getEpochSecond() < expiryTimestamp;
+                                            if (!isExpiry) {
+                                                sessionStore.save(sessionObj);
+                                            }
+                                            promise.complete(isExpiry);
+                                        }
+                                    });
+                        }
+                    });
+            }
+        return promise.future();
+    }
+
+    private Future<Boolean> localSession(String clientId){
+        return sessionStore.getExpiryTimestamp(clientId)
+                .compose(timeStamp->{
+                    if (timeStamp==null||Instant.now().getEpochSecond()>=timeStamp){
+                        return clearSession(new JsonObject().put("clientId",clientId))
+                            .map(false);
+                    }else{
+                        return Future.succeededFuture(true);
+                    }
+                });
+    }
+
+    private Future<Void> topicSubscribe(JsonObject body){
+        Promise<Void> promise=Promise.promise();
         String clientId = body.getString("clientId");
         JsonArray subscriptions = body.getJsonArray("subscriptions",J.EMPTY_ARRAY);
         J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).forEach(topicFilter->{
             this.topicFilter.subscribe(topicFilter,clientId, MqttQoS.AT_MOST_ONCE,false,false,0);
         });
-        sessionStore.addSubscription(clientId,subscriptions);
+        return sessionStore.addSubscription(clientId,subscriptions)
+                .onSuccess(v->{
+                    if (cluster){
+                        ActionLog log = ActionLog.subscribe(mqttCluster.id(), J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).collect(Collectors.toList()));
+                        clusterClient.proposal(clusterClient.nextRequestId(),log);
+                    }
+                })
+                .onComplete(promise);
 
-        if (cluster){
-            ActionLog log = ActionLog.subscribe(mqttCluster.id(), J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).collect(Collectors.toList()));
-            clusterClient.propose(clusterClient.nextRequestId(),log);
-        }
+
     }
 
-    private void topicUnSubscribe(JsonObject body){
+    private Future<Void> topicUnSubscribe(JsonObject body){
+        Promise<Void> promise=Promise.promise();
         String clientId = body.getString("clientId");
         JsonArray topics = body.getJsonArray("topics",J.EMPTY_ARRAY);
         List<String> list = topics.stream()
                 .map(Object::toString)
                 .peek(topicFilter->this.topicFilter.unSubscribe(topicFilter,clientId))
                 .collect(Collectors.toList());
-        sessionStore.deleteSubscription(clientId,list);
+        sessionStore.deleteSubscription(clientId,list)
+                .onSuccess(v->{
+                    if (cluster){
+                        List<String> unSubscribeList = list.stream().filter(topicFilter -> !this.topicFilter.anySubscribed(topicFilter)).collect(Collectors.toList());
+                        if (!unSubscribeList.isEmpty()) {
+                            ActionLog log = ActionLog.unSubscribe(mqttCluster.id(), unSubscribeList);
+                            clusterClient.proposal(clusterClient.nextRequestId(), log);
+                        }
+                    }
+                })
+                .onComplete(promise);
 
-        if (cluster){
-            ActionLog log = ActionLog.unSubscribe(mqttCluster.id(), list);
-            clusterClient.propose(clusterClient.nextRequestId(),log);
-        }
+        return promise.future();
     }
 
     private void retainMatch(String address,List<String> topicFilters){
@@ -494,7 +566,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                     });
         }else {
             stateService
-                    .retainMap(topicFilters)
+                    .retainMap()
                     .map(map->map.keySet()
                             .stream()
                             .filter(topic->topicFilters.stream().anyMatch(o-> TopicUtil.matches(o,topic)))
@@ -511,15 +583,21 @@ public class DispatcherVerticle extends AbstractVerticle {
                         }
 
                         JsonArray array = new JsonArray();
-                        List<Map.Entry<String, Set<String>>> list = map.entrySet()
+                        List<Map.Entry<String, Set<String>>> missIdList = map.entrySet()
                                 .stream()
                                 .peek(e -> array.add(e.getKey()))
                                 .filter(e -> !e.getValue().contains(mqttCluster.id()))
                                 .collect(Collectors.toList());
 
-                        List<Future> futures = list.stream().map(e -> {
+                        List<Future> futures = missIdList.stream().map(e -> {
                             int requestId = clusterClient.nextRequestId();
-                            return clusterClient.requestMessage(requestId, e.getValue(), e.getKey());
+                            return clusterClient.requestMessage(requestId, e.getValue(), e.getKey())
+                                    .onSuccess(msg->{
+                                        if (!isExpiry(msg)){
+                                            messageStore.set(e.getKey(),msg);
+                                            clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),e.getKey(),false,null,0));
+                                        }
+                                    });
                         }).collect(Collectors.toList());
 
                         CompositeFuture.all(futures).onComplete(ar -> {
@@ -532,9 +610,9 @@ public class DispatcherVerticle extends AbstractVerticle {
 
                             array.forEach(o->{
                                 messageStore.get(o.toString())
-                                        .map(MessageObj::getMessage)
                                         .onSuccess(msg->{
-                                            vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.copy().put("retain",true)));
+                                            if (msg!=null)
+                                                vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.getMessage().copy().put("retain",true)));
                                         });
                             });
 
@@ -543,8 +621,105 @@ public class DispatcherVerticle extends AbstractVerticle {
         }
     }
 
+    private void resendUnReleaseMessage(String address,String clientId) {
+        sessionStore.links(clientId)
+                .onFailure(t->logger.error("resendUnReleaseMessage fail",t))
+                .onSuccess(list->{
+                    for (JsonObject link : list) {
+                        String id = link.getString("id");
+                        Integer packetId = link.getInteger("packetId");
+                        if (id==null){
+                            if (packetId !=null){
+                                vertx.eventBus().send(address,UnSafeJsonObject.wrapper(link));
+                            }
+                        }else{
+                            messageStore.get(id)
+                                    .onFailure(t->logger.error("get message: {} fail cause:{}",id,t.getMessage()))
+                                    .onSuccess(msgObj->{
+                                        if (msgObj!=null) {
+                                            JsonObject msg = msgObj.getMessage();
+                                            if (packetId==null&&isExpiry(msgObj)) {
+                                                return;
+                                            }
+                                            JsonObject message = msg.copy().mergeIn(link);
+                                            vertx.eventBus().send(address,UnSafeJsonObject.wrapper(message.put("dup",true)));
+                                        } else {
+                                            if (!cluster) {
+                                                if (packetId!=null)
+                                                    sessionStore.release(clientId, packetId);
+                                            } else{
+                                                stateService.fetchMessageIndex(Set.of(id))
+                                                        .onSuccess(map->{
+                                                            Set<String> set = map.get(id);
+                                                            set.remove(clientId);
+                                                            if (set.isEmpty()){
+                                                                if (packetId!=null)
+                                                                    sessionStore.release(clientId, packetId);
+                                                                return;
+                                                            }
+                                                            clusterRequestAndSend(address,set,id,link);
+                                                        });
+                                            }
+                                        }
+                                    });
+                        }
+                    }
+                });
+    }
+
+    private void clusterRequestAndSend(String address,Set<String> nodeIds, String id,JsonObject link){
+        clusterClient.requestMessage(clusterClient.nextRequestId(),nodeIds,id)
+                .onFailure(t->logger.error("request message fail",t))
+                .onSuccess(messageObj->{
+                    JsonObject message = messageObj.getMessage();
+                    if (!isExpiry(messageObj)) {
+                        messageStore.set(id,messageObj);
+                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,false,null,0));
+                        vertx.eventBus().send(address, message.copy().mergeIn(link).put("dup", true));
+                    }
+                });
+    }
+
+    private boolean isExpiry(MessageObj messageObj){
+        JsonObject message = messageObj.getMessage();
+        Long expiryTimestamp = message.getLong("expiryTimestamp");
+        if (expiryTimestamp==null)
+            return false;
+        return Instant.now().getEpochSecond()>=expiryTimestamp;
+    }
+
+
+    private Future<Buffer> requestSession(JsonObject body) {
+        String clientId = body.getString("clientId");
+        return sessionStore.get(clientId)
+                .map(sessionObj -> sessionObj==null?null:new ObjCodec().encodeSessionObj(sessionObj))
+                .onFailure(t->logger.error("get client:{} session fail ",t,clientId));
+    }
+
+    private Future<Buffer> requestMessage(JsonObject body){
+        String id = body.getString("id");
+        return messageStore.get(id)
+                .map(messageObj -> messageObj==null?null:new ObjCodec().encodeMessageObj(messageObj))
+                .onFailure(t->logger.error("get message id:{} fail",t,id));
+    }
+
+    private Future<Boolean> takenOverSession(JsonObject body){
+        String clientId = body.getString("clientId");
+        Boolean sessionEnd = body.getBoolean("sessionEnd");
+        if (sessionEnd){
+            sessionStore.del(clientId);
+        }
+        vertx.eventBus().publish("_mqtt_session_taken_over", body);
+        return Future.succeededFuture(true);
+    }
+
+    private Future<Boolean> dispatcherMsg(JsonObject body){
+        dispatcherEvent(body);
+        return Future.succeededFuture(true);
+    }
+
     @Override
     public void stop(Future<Void> stopFuture) throws Exception {
-
+        stopFuture.complete();
     }
 }

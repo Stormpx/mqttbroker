@@ -10,7 +10,7 @@ public class ClusterState {
     private String id;
     private int currentTerm;
     private String votedFor;
-
+    private int termFirstIndex;
     private int lastIndex;
     private int commitIndex;
     private int lastApplied;
@@ -47,6 +47,15 @@ public class ClusterState {
 
     public void delLog(int index){
         logMap.remove(index);
+    }
+
+    public ClusterState markTermFirstIndex() {
+        this.termFirstIndex = lastIndex;
+        return this;
+    }
+
+    public int readIndex(){
+        return Math.max(termFirstIndex,commitIndex);
     }
 
 
@@ -99,5 +108,6 @@ public class ClusterState {
         this.lastIndex = lastIndex;
         return this;
     }
+
 
 }

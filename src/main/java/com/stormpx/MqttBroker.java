@@ -74,14 +74,27 @@ public class MqttBroker {
 
 
     public static Future<Void> start(Vertx vertx,JsonObject config){
-        Promise<Void> promise=Promise.promise();
         setLogLevel(config);
+
+        return deployDispatcherVerticle(vertx, config)
+                .compose(v->deployBrokerVerticle(vertx, config))
+                .map((Void)null);
+
+    }
+
+    private static Future<String> deployDispatcherVerticle(Vertx vertx,JsonObject config){
+        Promise<String> promise=Promise.promise();
+        vertx.deployVerticle(DispatcherVerticle.class,new DeploymentOptions().setConfig(config),promise);
+        return promise.future();
+    }
+
+    private static Future<String> deployBrokerVerticle(Vertx vertx,JsonObject config){
         int availableProcessors = Runtime.getRuntime().availableProcessors();
         logger.info("available processors :{}",availableProcessors);
         Integer verticleInstance = config.getInteger("verticle_instance", availableProcessors);
         logger.info("verticle instance :{}",verticleInstance);
         DeploymentOptions mqtt = new DeploymentOptions().setInstances(verticleInstance).setConfig(config);
-
+        Promise<String> promise=Promise.promise();
         vertx.deployVerticle(MqttBrokerVerticle.class,mqtt,arr->{
             if (arr.succeeded()){
                 promise.complete();

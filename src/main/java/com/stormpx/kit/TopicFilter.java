@@ -103,8 +103,17 @@ public class TopicFilter {
         return list;
     }*/
 
+
+    public boolean anySubscribed(String topicFilter){
+        SubscribeObj subscribeObj = topics.get(topicFilter);
+        if (subscribeObj==null)
+            return false;
+
+        return subscribeObj.anySubscribed();
+    }
+
     public boolean anyMatch(String topic){
-        return topics.keySet().stream().anyMatch(t->TopicUtil.matches(t,topic));
+        return topics.entrySet().stream().anyMatch(t->TopicUtil.matches(t.getKey(),topic)&&t.getValue().anySubscribed());
     }
 
     public Collection<SubscribeInfo> matches(String topic){
@@ -203,6 +212,10 @@ public class TopicFilter {
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .collect(Collectors.toList());
+        }
+
+        public boolean anySubscribed(){
+            return !nonShareSubscribeMap.isEmpty()||shareSubscribeMap.values().stream().anyMatch(map -> !map.isEmpty());
         }
 
     }

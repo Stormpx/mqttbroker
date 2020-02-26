@@ -10,6 +10,7 @@ import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 
 import java.util.List;
+import java.util.function.Function;
 
 public interface MqttContext {
 
@@ -105,7 +106,7 @@ public interface MqttContext {
 
     MqttContext publishAcknowledgeHandler(Handler<Integer> handler);
 
-    MqttContext publishReceiveHandler(Handler<Integer> handler);
+    MqttContext publishReceiveHandler(Function<Integer,Future<Void>> handler);
 
     MqttContext publishReleaseHandler(Handler<Integer> handler);
 

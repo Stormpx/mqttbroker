@@ -11,15 +11,15 @@ public interface SessionStore {
 
     Future<SessionObj> get(String clientId);
 
-    void save(SessionObj sessionObj);
+    Future<Void> save(SessionObj sessionObj);
 
-    void del(String clientId);
+    Future<Void> del(String clientId);
 
-    void setExpiryTimestamp(String clientId,Long expiryTimestamp);
+    Future<Void> setExpiryTimestamp(String clientId,Long expiryTimestamp);
 
     Future<Long> getExpiryTimestamp(String clientId);
 
-    void addLink(String clientId,JsonObject link);
+    Future<Void> addLink(String clientId,JsonObject link);
 
     Future<String> release(String clientId, int packetId);
 
@@ -28,22 +28,22 @@ public interface SessionStore {
     Future<List<JsonObject>> links(String clientId);
 
 
-    void addPacketId(String clientId,int packetId);
+    Future<Void> addPacketId(String clientId,int packetId);
 
     Future<List<Integer>> packetId(String clientId);
 
-    void removePacketId(String clientId,int packetId);
+    Future<Void> removePacketId(String clientId,int packetId);
 
-    void saveWill(String clientId, JsonObject will);
+    Future<Void> saveWill(String clientId, JsonObject will);
 
     Future<JsonObject> getWill(String clientId);
 
-    void delWill(String clientId);
+    Future<Void> delWill(String clientId);
 
-    void addSubscription(String clientId, JsonArray jsonArray);
+    Future<Void> addSubscription(String clientId, JsonArray jsonArray);
 
     Future<JsonArray> fetchSubscription(String clientId);
 
-    void deleteSubscription(String clientId,List<String> topics);
+    Future<Void> deleteSubscription(String clientId,List<String> topics);
 
 }

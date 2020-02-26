@@ -1,30 +1,35 @@
 package com.stormpx.cluster.message;
 
+import com.stormpx.kit.MqttCodecUtil;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
 
 public class ProMessage {
-    private RequestType requestType;
+    private String res;
     private JsonObject body;
 
-
-    public ProMessage(RequestType requestType, JsonObject body) {
-        this.requestType = requestType;
+    public ProMessage(String res, JsonObject body) {
+        this.res = res;
         this.body = body;
     }
 
+
     public static ProMessage decode(Buffer buffer){
-        RequestType requestType = RequestType.valueOf(buffer.getByte(0));
+        int pos=0;
+        int len = buffer.getUnsignedShort(pos);
+        pos+=3;
+        Buffer res = buffer.getBuffer(pos, pos + len);
+        pos+=len;
+        JsonObject json = buffer.slice(pos, buffer.length()).toJsonObject();
+        return new ProMessage(res.toString("utf-8"),json);
+
+        /*RequestType requestType = RequestType.valueOf(buffer.getByte(0));
         JsonObject body = buffer.slice(0, buffer.length()).toJsonObject();
-        return new ProMessage(requestType,body);
+        return new ProMessage(requestType,body);*/
     }
 
-    public RequestType getRequestType() {
-        return requestType;
-    }
-
-    public ProMessage setRequestType(RequestType requestType) {
-        this.requestType = requestType;
+    public ProMessage setRes(String res) {
+        this.res = res;
         return this;
     }
 
@@ -39,9 +44,14 @@ public class ProMessage {
 
     public Buffer encode(){
         Buffer buffer = body.toBuffer();
-        return Buffer.buffer(1+buffer.length())
-                .appendByte((byte) requestType.getValue())
+        byte[] utf8String = MqttCodecUtil.encodeUtf8String(res);
+        return Buffer.buffer(2+utf8String.length+buffer.length())
+                .appendUnsignedShort(utf8String.length)
+                .appendBytes(utf8String)
                 .appendBuffer(buffer);
     }
 
+    public String getRes() {
+        return res;
+    }
 }

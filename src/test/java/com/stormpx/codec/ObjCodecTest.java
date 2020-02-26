@@ -1,4 +1,4 @@
-package com.stormpx.store.file;
+package com.stormpx.codec;
 
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttProperties;
@@ -44,6 +44,7 @@ public class ObjCodecTest {
 
         MessageObj messageObj = new MessageObj(json);
         Buffer buffer = objCodec.encodeMessageObj(messageObj);
+        System.out.println(buffer.length());
         MessageObj obj = objCodec.decodeMessageObj(buffer);
 
         Assertions.assertEquals(obj.getMessage(),json);
@@ -126,7 +127,9 @@ public class ObjCodecTest {
 
 
         Buffer buffer = objCodec.encodeSessionObj(sessionObj);
+        System.out.println(buffer.length());
         SessionObj obj = objCodec.decodeSessionObj(buffer);
+
 
         Assertions.assertEquals(obj,sessionObj);
 

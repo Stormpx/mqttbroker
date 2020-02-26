@@ -21,6 +21,8 @@ public interface ClusterNode {
 
     void requestReadIndex(String nodeId,String id);*/
 
+    boolean isActive();
+
     void send(Buffer buffer);
 
     ClusterNode messageHandler(Handler<RpcMessage> handler);

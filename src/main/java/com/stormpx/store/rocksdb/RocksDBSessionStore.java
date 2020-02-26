@@ -11,10 +11,10 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.RocksIterator;
+import org.rocksdb.*;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,8 +31,17 @@ public class RocksDBSessionStore implements SessionStore {
     public RocksDBSessionStore(Vertx vertx,String dir) throws RocksDBException {
         this.vertx=vertx;
         String path = Paths.get(dir).normalize().toString() + "/session/default";
+        File file = new File(path);
+        create(file);
         this.rocksDB=RocksDB.open(path);
     }
+
+    private void create(File file){
+        if (!file.getParentFile().exists())
+            create(file.getParentFile());
+        file.mkdir();
+    }
+
     @Override
     public Future<SessionObj> get(String clientId) {
         Promise<SessionObj> promise=Promise.promise();
@@ -88,50 +97,65 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void save(SessionObj sessionObj) {
-        try {
-            String clientId = sessionObj.getClientId();
-            delClient(clientId);
-            if (sessionObj.getExpiryTimestamp()!=null){
-                String key=clientId+"-expiryTimestamp";
-                byte[] value = Buffer.buffer().appendLong(sessionObj.getExpiryTimestamp()).getBytes();
-                rocksDB.put(key.getBytes(),value);
-            }
-            if (sessionObj.getWill()!=null){
-                String key=clientId+"-will";
-                rocksDB.put(key.getBytes(),sessionObj.getWill().toBuffer().getBytes());
-            }
-            if (sessionObj.getTopicSubscriptions()!=null){
-                String key=clientId+"-subscribe";
-                Buffer value = sessionObj.getTopicSubscriptions().toBuffer();
-                rocksDB.put(key.getBytes(),value.getBytes());
-            }
-            if (sessionObj.getMessageLinkMap()!=null){
-                for (Map.Entry<Integer, JsonObject> entry : sessionObj.getMessageLinkMap().entrySet()) {
-                    Integer k = entry.getKey();
-                    JsonObject v = entry.getValue();
-                    String key = clientId + "-link-" + k;
-                    rocksDB.put(key.getBytes(), v.toBuffer().getBytes());
-                }
+    public Future<Void> save(SessionObj sessionObj) {
+        Promise<Void> promise=Promise.promise();
+        vertx.executeBlocking(p->{
+            try {
+                String clientId = sessionObj.getClientId();
+                WriteBatch batch = new WriteBatch();
 
-            }
-            if (sessionObj.getPendingMessage()!=null){
-                for (Map.Entry<String, JsonObject> entry : sessionObj.getPendingMessage().entrySet()) {
-                    String k = entry.getKey();
-                    JsonObject v = entry.getValue();
-                    String key = clientId + "-link-" + k;
-                    rocksDB.put(key.getBytes(), v.toBuffer().getBytes());
+                RocksIterator rocksIterator = rocksDB.newIterator();
+                rocksIterator.seek(clientId.getBytes());
+                while (rocksIterator.isValid()){
+                    batch.remove(rocksIterator.key());
+                    rocksIterator.next();
                 }
-            }
-            if (sessionObj.getPacketIdSet()!=null){
-                sessionObj.getPacketIdSet()
-                        .forEach(packetId->{
+                rocksIterator.close();
+                if (sessionObj.getExpiryTimestamp()!=null){
+                    String key=clientId+"-expiryTimestamp";
+                    byte[] value = Buffer.buffer().appendLong(sessionObj.getExpiryTimestamp()).getBytes();
+                    batch.put(key.getBytes(),value);
+                }
+                if (sessionObj.getWill()!=null){
+                    String key=clientId+"-will";
+                    batch.put(key.getBytes(),sessionObj.getWill().toBuffer().getBytes());
+                }
+                if (sessionObj.getTopicSubscriptions()!=null){
+                    String key=clientId+"-subscribe";
+                    Buffer value = sessionObj.getTopicSubscriptions().toBuffer();
+                    batch.put(key.getBytes(),value.getBytes());
+                }
+                if (sessionObj.getMessageLinkMap()!=null){
+                    for (Map.Entry<Integer, JsonObject> entry : sessionObj.getMessageLinkMap().entrySet()) {
+                        Integer k = entry.getKey();
+                        JsonObject v = entry.getValue();
+                        String key = clientId + "-link-" + k;
+                        batch.put(key.getBytes(), v.toBuffer().getBytes());
+                    }
 
-                        });
+                }
+                if (sessionObj.getPendingMessage()!=null){
+                    for (Map.Entry<String, JsonObject> entry : sessionObj.getPendingMessage().entrySet()) {
+                        String k = entry.getKey();
+                        JsonObject v = entry.getValue();
+                        String key = clientId + "-link-" + k;
+                        batch.put(key.getBytes(), v.toBuffer().getBytes());
+                    }
+                }
+                if (sessionObj.getPacketIdSet()!=null){
+                    for (Integer packetId : sessionObj.getPacketIdSet()) {
+                        String key = clientId + "-packetId-" + packetId;
+                        batch.put(key.getBytes(), Buffer.buffer().appendInt(packetId).getBytes());
+                    }
+                }
+                rocksDB.write(new WriteOptions(),batch);
+                p.complete();
+            } catch (RocksDBException e) {
+                logger.error("save client:{} sessionObj fail",e,sessionObj.getClientId());
+                throw new RuntimeException(e);
             }
-        } catch (RocksDBException e) {
-            logger.error("save client:{} sessionObj fail",e,sessionObj.getClientId());
-        }
+        },promise);
+        return promise.future();
     }
 
     private void delClient(String clientId) throws RocksDBException {
@@ -139,32 +163,41 @@ public class RocksDBSessionStore implements SessionStore {
         rocksIterator.seek(clientId.getBytes());
         while (rocksIterator.isValid()){
             rocksDB.delete(rocksIterator.key());
+            rocksIterator.next();
         }
         rocksIterator.close();
     }
 
     @Override
-    public void del(String clientId) {
+    public Future<Void> del(String clientId) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 delClient(clientId);
+                p.complete();
             } catch (RocksDBException e) {
                 logger.error("del session "+clientId+" fail",e);
+                throw new RuntimeException(e);
             }
-        },null);
+        },promise);
+        return promise.future();
     }
 
     @Override
-    public void setExpiryTimestamp(String clientId, Long expiryTimestamp) {
+    public Future<Void> setExpiryTimestamp(String clientId, Long expiryTimestamp) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-expiryTimestamp";
                 byte[] value = Buffer.buffer().appendLong(expiryTimestamp).getBytes();
                 rocksDB.put(key.getBytes(),value);
+                p.complete();
             } catch (RocksDBException e) {
                 logger.error("set client: {} expiryTimestamp :{} fail",e,clientId,expiryTimestamp);
+                throw new RuntimeException(e);
             }
-        },null);
+        },promise);
+        return promise.future();
     }
 
     @Override
@@ -184,23 +217,29 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void addLink(String clientId, JsonObject link) {
+    public Future<Void> addLink(String clientId, JsonObject link) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
+                WriteBatch writeBatch = new WriteBatch();
                 String id = link.getString("id");
-                rocksDB.singleDelete((clientId+"-link-"+id).getBytes());
+                writeBatch.remove((clientId+"-link-"+id).getBytes());
                 Integer packetId = link.getInteger("packetId");
                 if (packetId==null){
                     String key = clientId + "-link-" + id;
-                    rocksDB.put(key.getBytes(), link.toBuffer().getBytes());
+                    writeBatch.put(key.getBytes(), link.toBuffer().getBytes());
                 }else {
                     String key = clientId + "-link-" + packetId;
-                    rocksDB.put(key.getBytes(), link.toBuffer().getBytes());
+                    writeBatch.put(key.getBytes(), link.toBuffer().getBytes());
                 }
+                rocksDB.write(new WriteOptions(),writeBatch);
+                p.complete();
             } catch (RocksDBException e) {
                 logger.error("add client:{} link :{} fail",e,clientId,link.encodePrettily());
+                throw new RuntimeException(e);
             }
-        },null);
+        },promise);
+        return promise.future();
     }
 
     @Override
@@ -214,7 +253,7 @@ public class RocksDBSessionStore implements SessionStore {
                 JsonObject link = Buffer.buffer(value).toJsonObject();
                 p.complete(link.getString("id"));
             } catch (RocksDBException e) {
-                logger.error("release client:{} link :{} fail",e,clientId,packetId);
+                throw new RuntimeException(e);
             }
         },promise);
         return promise.future();
@@ -231,7 +270,8 @@ public class RocksDBSessionStore implements SessionStore {
                 JsonObject link = Buffer.buffer(value).toJsonObject();
                 p.complete(link.getString("id"));
             } catch (RocksDBException e) {
-                logger.error("set client :{} link receive :{} fail",e,clientId,packetId);
+                logger.error("set client:{} receive packetId:{} failed",e,clientId,packetId);
+                throw new RuntimeException(e);
             }
         },promise);
         return promise.future();
@@ -249,6 +289,7 @@ public class RocksDBSessionStore implements SessionStore {
             while (rocksIterator.isValid()){
                 byte[] value = rocksIterator.value();
                 list.add(Buffer.buffer(value).toJsonObject());
+                rocksIterator.next();
             }
             rocksIterator.close();
             p.complete(list);
@@ -258,15 +299,19 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void addPacketId(String clientId, int packetId) {
+    public Future<Void> addPacketId(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-packetId-"+packetId;
                 rocksDB.put(key.getBytes(),Buffer.buffer().appendInt(packetId).getBytes());
+                p.complete();
             } catch (RocksDBException e) {
-                logger.error("add client:{} packetId :{} fail",e,clientId,packetId);
+                logger.error("add client:{} packetId :{} failed",e,clientId,packetId);
+                throw new RuntimeException(e);
             }
-        },null);
+        },promise);
+        return promise.future();
     }
 
     @Override
@@ -281,6 +326,7 @@ public class RocksDBSessionStore implements SessionStore {
             while (rocksIterator.isValid()){
                 byte[] value = rocksIterator.value();
                 list.add(Buffer.buffer(value).getInt(0));
+                rocksIterator.next();
             }
             rocksIterator.close();
             p.complete(list);
@@ -290,28 +336,35 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void removePacketId(String clientId, int packetId) {
+    public Future<Void> removePacketId(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-packetId-"+packetId;
                 rocksDB.delete(key.getBytes());
+                p.complete();
             } catch (RocksDBException e) {
-                logger.error("del client:{} packetId packetId: {} fail",e,clientId,packetId);
+                logger.error("del client:{} packetId packetId: {} failed",e,clientId,packetId);
+                throw new RuntimeException(e);
             }
-        },null);
+        },promise);
+        return promise.future();
     }
 
     @Override
-    public void saveWill(String clientId, JsonObject will) {
+    public Future<Void> saveWill(String clientId, JsonObject will) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-will";
                 rocksDB.put(key.getBytes(),will.toBuffer().getBytes());
+                p.complete();
             } catch (RocksDBException e) {
-                logger.error("del client:{} will :{} fail",e,clientId,will.encodePrettily());
+                logger.error("del client:{} will :{} failed",e,clientId,will.encodePrettily());
+                throw new RuntimeException(e);
             }
-            p.complete();
-        },ar->{});
+        },promise);
+        return promise.future();
     }
 
     @Override
@@ -323,6 +376,7 @@ public class RocksDBSessionStore implements SessionStore {
                 byte[] value = rocksDB.get(key.getBytes());
                 p.complete(Buffer.buffer(value).toJsonObject());
             } catch (RocksDBException e) {
+                logger.error("get client:{} will failed",e,clientId);
                 throw new RuntimeException(e);
             }
         },promise);
@@ -330,21 +384,24 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void delWill(String clientId) {
+    public Future<Void> delWill(String clientId) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-will";
                 rocksDB.singleDelete(key.getBytes());
             } catch (RocksDBException e) {
-                logger.error("del client:{} will fail",e,clientId);
+                logger.error("del client:{} will failed",e,clientId);
+                throw new RuntimeException(e);
             }
             p.complete();
-        },ar->{});
-
+        },promise);
+        return promise.future();
     }
 
     @Override
-    public void addSubscription(String clientId, JsonArray jsonArray) {
+    public Future<Void> addSubscription(String clientId, JsonArray jsonArray) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-subscribe";
@@ -355,11 +412,14 @@ public class RocksDBSessionStore implements SessionStore {
                 JsonArray filter = J.toJsonStream(array).filter(json -> !topicFilter.contains(json.getString("topicFilter"))).collect(J.toJsonArray());
                 Buffer value = filter.addAll(jsonArray).toBuffer();
                 rocksDB.put(key.getBytes(),value.getBytes());
+                p.complete();
             } catch (RocksDBException e) {
-                logger.error("add client:{} subscription :{} fail",e,clientId,jsonArray.encode());
+                logger.error("add client:{} subscription :{} failed",e,clientId,jsonArray.encode());
+                throw new RuntimeException(e);
             }
-            p.complete();
-        },ar->{});
+
+        },promise);
+        return promise.future();
     }
 
     @Override
@@ -369,9 +429,14 @@ public class RocksDBSessionStore implements SessionStore {
             try {
                 String key=clientId+"-subscribe";
                 byte[] bytes = rocksDB.get(key.getBytes());
-                JsonArray array = Buffer.buffer(bytes).toJsonArray();
-                p.complete(array);
+                if (bytes!=null) {
+                    JsonArray array = Buffer.buffer(bytes).toJsonArray();
+                    p.complete(array);
+                }else{
+                    p.complete();
+                }
             } catch (RocksDBException e) {
+                logger.error("fetch client:{} subscription failed",e,clientId);
                 throw new RuntimeException(e);
             }
         },promise);
@@ -379,7 +444,8 @@ public class RocksDBSessionStore implements SessionStore {
     }
 
     @Override
-    public void deleteSubscription(String clientId, List<String> topics) {
+    public Future<Void> deleteSubscription(String clientId, List<String> topics) {
+        Promise<Void> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
                 String key=clientId+"-subscribe";
@@ -389,10 +455,13 @@ public class RocksDBSessionStore implements SessionStore {
                 JsonArray filter = J.toJsonStream(array).filter(json -> !topicSet.contains(json.getString("topicFilter"))).collect(J.toJsonArray());
                 Buffer value = filter.toBuffer();
                 rocksDB.put(key.getBytes(),value.getBytes());
+                p.complete();
             } catch (RocksDBException e) {
-                logger.error("del client:{} subscription :{} fail",e,clientId,topics);
+                logger.error("del client:{} subscription :{} failed",e,clientId,topics);
+                throw new RuntimeException(e);
             }
-            p.complete();
-        },ar->{});
+
+        },promise);
+        return promise.future();
     }
 }

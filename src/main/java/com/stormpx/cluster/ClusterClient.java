@@ -1,12 +1,9 @@
 package com.stormpx.cluster;
 
 import com.stormpx.cluster.message.*;
+import com.stormpx.cluster.net.NetCluster;
 import com.stormpx.cluster.net.Response;
-import com.stormpx.store.MessageStore;
-import com.stormpx.store.SessionStore;
-import com.stormpx.store.MessageObj;
-import com.stormpx.store.ObjCodec;
-import com.stormpx.store.SessionObj;
+import com.stormpx.store.*;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
@@ -14,6 +11,7 @@ import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class ClusterClient {
     private final static Logger logger= LoggerFactory.getLogger(ClusterClient.class);
@@ -21,20 +19,23 @@ public class ClusterClient {
     private MqttCluster mqttCluster;
     private MqttStateService stateService;
     private MessageStore messageStore;
-    private SessionStore sessionStore;
+    private ClusterDataStore clusterDataStore;
     private Map<Integer,MultipleRequest> responseFutureMap;
     private int requestId=1;
 
-    private List<Handler<Void>> pending;
 
-    public ClusterClient(Vertx vertx,  MqttStateService stateService) {
+    public ClusterClient(Vertx vertx,  MqttStateService stateService,MessageStore messageStore,ClusterDataStore clusterDataStore) {
         this.vertx = vertx;
         this.stateService=stateService;
+        this.messageStore=messageStore;
+        this.clusterDataStore=clusterDataStore;
         this.responseFutureMap=new HashMap<>();
     }
 
     public int nextRequestId(){
-        return requestId++;
+        int requestId = this.requestId++;
+        clusterDataStore.setRequestId(requestId);
+        return requestId;
     }
 
     public ClusterClient setRequestId(int requestId) {
@@ -51,29 +52,24 @@ public class ClusterClient {
         fire(response.getRequestId(),response);
     }
 
-    public void propose(int requestId,ActionLog log){
+    public void proposal(int requestId, ActionLog log){
         String leaderId = mqttCluster.getLeaderId();
         String id = mqttCluster.id();
 
         if (leaderId != null) {
-            Buffer buffer = new ProMessage(RequestType.ADDLOG, JsonObject.mapFrom(log)).encode();
+            Buffer buffer = new ProMessage("/addLog", JsonObject.mapFrom(log)).encode();
             MultipleRequest request = new MultipleRequest(Set.of(leaderId), requestId);
             request.future()
                     .setHandler(ar -> {
                         if (!ar.succeeded() || !ar.result().isSuccess()) {
-                            propose(requestId, log);
+                            proposal(requestId, log);
                         } else {
-                            logger.debug("propose log:{}", log);
+                            logger.debug("proposal log:{}", log);
                         }
                     });
 
             if (leaderId.equals(id)) {
-                stateService.handle(
-                        new RpcMessage()
-                                .setMessageType(MessageType.REQUEST)
-                                .setRequestId(requestId)
-                                .setFromId(id)
-                                .setBuffer(buffer))
+                stateService.handle(new RpcMessage(MessageType.REQUEST,id,id,requestId,buffer))
                         .onSuccess(r->fire(requestId,r.setNodeId(id)))
                         .onFailure(t->{
                             logger.error("try add log fail",t);
@@ -84,14 +80,21 @@ public class ClusterClient {
                 mqttCluster.net().request(leaderId,requestId,buffer);
             }
         }else{
-            stateService.addPendingEvent(v->propose(requestId,log));
+            stateService.addPendingEvent(v-> proposal(requestId,log));
         }
     }
 
 
+    public void takenOverSession(JsonObject body){
+        NetCluster net = mqttCluster.net();
+        int requestId = nextRequestId();
+        Set<String> nodeIds = net.nodes().stream().map(ClusterNode::id).collect(Collectors.toSet());
+        mqttCluster.net().request(nodeIds,requestId,new ProMessage("/takenover",body).encode());
+    }
+
 
     public Future<MessageObj> requestMessage(int requestId,Set<String> nodeIds, String id){
-        ProMessage proMessage = new ProMessage(RequestType.MESSAGE, new JsonObject().put("id", id));
+        ProMessage proMessage = new ProMessage("/message", new JsonObject().put("id", id));
 
         mqttCluster.net().request(nodeIds,requestId,proMessage.encode());
         Promise<MessageObj> promise=Promise.promise();
@@ -104,7 +107,6 @@ public class ClusterClient {
                             Buffer payload = response.getPayload();
                             MessageObj messageObj =
                                     new ObjCodec().decodeMessageObj(payload);
-                            messageStore.set(id,messageObj);
 
                             promise.complete(messageObj);
                         }else{
@@ -120,25 +122,25 @@ public class ClusterClient {
     }
 
 
-    public Future<Void> requestSession(int requestId,Set<String> set, String clientId){
-        ProMessage proMessage = new ProMessage(RequestType.SESSION, new JsonObject().put("clientId", clientId));
+    public Future<SessionObj> requestSession(int requestId,Set<String> set, String clientId){
+        ProMessage proMessage = new ProMessage("/session", new JsonObject().put("clientId", clientId));
 
         mqttCluster.net().request(set,requestId,proMessage.encode());
-        Promise<Void> promise=Promise.promise();
+        Promise<SessionObj> promise=Promise.promise();
         MultipleRequest multipleRequest = new MultipleRequest(set, requestId);
         multipleRequest.future()
                 .setHandler(ar->{
+                    SessionObj sessionObj = null;
                     if (ar.succeeded()&&ar.result().isSuccess()){
                         Response response = ar.result();
-                        //todo save session
+                        // save session
                         Buffer payload = response.getPayload();
-                        SessionObj sessionObj =
-                                new ObjCodec().decodeSessionObj(payload);
+                        sessionObj = new ObjCodec().decodeSessionObj(payload);
 
-                        sessionStore.save(sessionObj);
+//                        sessionStore.save(sessionObj);
 
                     }
-                    promise.tryComplete();
+                    promise.tryComplete(sessionObj);
                 });
         return promise.future();
     }

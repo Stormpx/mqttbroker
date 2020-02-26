@@ -325,7 +325,14 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         mqttContext.subscribeHandler(message -> onSubscribe(mqttContext,message))
                 .unSubscribeHandler(message -> onUnSubscribe(mqttContext,message))
                 .publishHandler(message -> onClientPublish(mqttContext, message))
-                .publishReleaseHandler(id -> dataStorage.removePacketId(mqttContext.session().clientIdentifier(), id))
+                .publishReleaseHandler(id ->{
+                    dataStorage.removePacketId(mqttContext.session().clientIdentifier(), id)
+                            .onFailure(mqttContext::handleException)
+                            .onSuccess(v->{
+                                mqttContext.publishComplete(id,ReasonCode.SUCCESS,null,null);
+                                mqttContext.session().removePacketId(id);
+                            });
+                })
                 .publishAcknowledgeHandler(id -> dataStorage.release(mqttContext.session().clientIdentifier(), id))
                 .publishReceiveHandler(id -> dataStorage.receive(mqttContext.session().clientIdentifier(), id))
                 .publishCompleteHandler(id -> dataStorage.release(mqttContext.session().clientIdentifier(), id))
@@ -377,13 +384,28 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 });
     }
 
+    private Future<Boolean> handleCleanSession(MqttContext mqttContext){
+        String clientId = mqttContext.session().clientIdentifier();
+        return dispatcher.sessionPresent(clientId)
+                .compose(b->{
+                    if (mqttContext.isCleanSession()){
+                        //fetch will
+                        return dataStorage.fetchWillMessage(clientId)
+                                //if will is null the client may still connect
+                                .onSuccess(json-> tryPublishWill(clientId,json))
+                                .map(false);
+                    }else{
+                        return Future.succeededFuture(b);
+                    }
+                });
+    }
 
 
     private Future<Boolean> handleSessionPresent(MqttContext mqttContext, boolean sessionPresent){
         String clientId = mqttContext.session().clientIdentifier();
         takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
         if (sessionPresent){
-
+            dataStorage.dropWillMessage(clientId);
             return addUnacknowledgedPacketId(mqttContext)
                     .onSuccess(v->{
                         writeUnFinishMessage(mqttContext);
@@ -394,28 +416,10 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         }else {
             //session expiry
             topicFilter.clearSubscribe(clientId);
-            dataStorage.clearSession(clientId);
             return Future.succeededFuture(false);
         }
     }
 
-    private Future<Boolean> handleCleanSession(MqttContext mqttContext){
-        String clientId = mqttContext.session().clientIdentifier();
-        if (mqttContext.isCleanSession()){
-            //fetch will
-            return dataStorage.fetchWillMessage(clientId)
-                    //if will is null the client may still connect
-                    .onSuccess(json-> tryPublishWill(clientId,json))
-                    .map(false);
-        }else{
-            return dataStorage.getExpiryTimestamp(clientId)
-                    .map(expiryTimestamp-> {
-                        if (expiryTimestamp==null)
-                            return false;
-                        return Instant.now().getEpochSecond()<expiryTimestamp;
-                    });
-        }
-    }
 
 
     private void takenOverConnection(String newId,String clientId,boolean sessionEnd){
@@ -492,7 +496,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                         topic.add(mqttSubscription.getTopicFilter());
                                         break;
                                     case NOT_EXIST_SEND_MESSAGES_AT_THE_TIME:
-                                        if (topicFilter.subscribed(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier())) {
+                                        if (!topicFilter.subscribed(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier())) {
                                             topic.add(mqttSubscription.getTopicFilter());
                                         }
                                         break;
@@ -525,10 +529,12 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                         }
                         //store subscribe
                         if (!subscriptions.isEmpty()) {
-                            dispatcher.subscribeTopic(mqttContext.session().clientIdentifier(), subscriptions, message.getSubscriptionIdentifier());
+                            dispatcher.subscribeTopic(mqttContext.session().clientIdentifier(), subscriptions, message.getSubscriptionIdentifier())
+                                .onFailure(mqttContext::handleException)
+                                .onSuccess(v->mqttContext.subscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, authResult.getPairList(), null));
                         }
                         //ack
-                        mqttContext.subscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, authResult.getPairList(), null);
+
                     } catch (Exception e) {
                         mqttContext.handleException(e);
                     }
@@ -558,9 +564,11 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         String clientId = mqttContext.session().clientIdentifier();
         List<ReasonCode> reasonCodes = mqttSubscriptions.stream().peek(s -> topicFilter.unSubscribe(s, clientId)).peek(s -> logger.debug("client:{} unSubscribe topic:{}", clientId, s)).map(s -> ReasonCode.SUCCESS).collect(Collectors.toList());
 
-        dispatcher.unSubscribeTopic(mqttContext.session().clientIdentifier(), mqttSubscriptions);
+        dispatcher.unSubscribeTopic(mqttContext.session().clientIdentifier(), mqttSubscriptions)
+                .onFailure(mqttContext::handleException)
+                .onSuccess(v->mqttContext.unSubscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, null, null));
 
-        mqttContext.unSubscribeAcknowledge(message.getPacketIdentifier(), reasonCodes, null, null);
+
     }
 
 
@@ -595,14 +603,24 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                         result.put("expiryTimestamp", Instant.now().getEpochSecond() + messageExpiryInterval);
                     }
 
-                    if (message.getQos() == MqttQoS.AT_LEAST_ONCE) {
-                        mqttContext.publishAcknowledge(message.getPacketId(), ReasonCode.SUCCESS, userProperty, null);
-                    } else if (message.getQos() == MqttQoS.EXACTLY_ONCE) {
-                        dataStorage.addPacketId(clientId, message.getPacketId());
-                        mqttContext.publishReceived(message.getPacketId(), ReasonCode.SUCCESS, userProperty, null);
+                    if (message.getQos() == MqttQoS.EXACTLY_ONCE) {
+                        dataStorage.addPacketId(clientId, message.getPacketId())
+                            .onFailure(mqttContext::handleException)
+                            .onSuccess(v->{
+                                mqttContext.publishReceived(message.getPacketId(), ReasonCode.SUCCESS, userProperty, null);
+                                //dispatcher
+                                dispatcherEvent(result);
+                            });
+                    }else {
+                        if (message.getQos() == MqttQoS.AT_LEAST_ONCE) {
+
+                            mqttContext.publishAcknowledge(message.getPacketId(), ReasonCode.SUCCESS, userProperty, null);
+
+                        }
+                        //dispatcher
+                        dispatcherEvent(result);
                     }
-                    //dispatcher
-                    dispatcherEvent(result);
+
 
                 } else {
                     if (message.getQos() == MqttQoS.AT_LEAST_ONCE) {
@@ -625,7 +643,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         MqttWill will = session.will();
 
         if (mqttContext.isTakenOver()) {
-            //remove connection
+            //del subscribe
             topicFilter.clearSubscribe(mqttContext.session().clientIdentifier());
             if (!will.isWillFlag() || (mqttContext.sessionExpiryInterval() != 0 && will.getWillDelayInterval() != 0))
                 return;
@@ -775,8 +793,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         Integer packetId = message.getInteger("packetId");
         String topic = message.getString("topic");
         MqttQoS qos = MqttQoS.valueOf(message.getInteger("qos"));
-        boolean retain = message.getBoolean("retain");
         boolean dup = message.getBoolean("dup", false);
+        boolean retain = message.getBoolean("retain");
         Buffer payload = Buffer.buffer(message.getBinary("payload"));
 
 

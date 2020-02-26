@@ -155,7 +155,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
                     MessageObj messageObj = publishMessageStore.getObj(s);
                     if (messageObj==null)
                         return;
-                    if (messageObj.getRnf()<=0&&epochSecond-messageObj.getTimestamp()>60){
+                    if (messageObj.getRefCnt()<=0&&epochSecond-messageObj.getTimestamp()>60){
                         publishMessageStore.remove(s);
                     }else {
                         Long expiryTimestamp = messageObj.getMessage().getLong("expiryTimestamp");

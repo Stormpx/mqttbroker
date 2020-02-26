@@ -54,7 +54,7 @@ public class ObjCodec {
     }
 
     public Buffer encodeMessageObj(MessageObj messageObj){
-        int rnf = messageObj.getRnf();
+        int rnf = messageObj.getRefCnt();
         JsonObject jsonObject = messageObj.getMessage();
         String id = jsonObject.getString("id");
         String topic = jsonObject.getString("topic");

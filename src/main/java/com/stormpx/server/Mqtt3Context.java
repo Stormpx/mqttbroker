@@ -111,7 +111,7 @@ public class Mqtt3Context extends AbstractMqttContext {
 
     @Override
     protected void handlePublishReceive(MqttPapaPacket pubRecPacket) {
-       publishRelease(pubRecPacket.getPacketIdentifier(),ReasonCode.SUCCESS,null,null);
+//       publishRelease(pubRecPacket.getPacketIdentifier(),ReasonCode.SUCCESS,null,null);
         super.handlePublishReceive(pubRecPacket);
     }
 

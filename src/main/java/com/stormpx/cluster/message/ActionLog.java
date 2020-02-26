@@ -40,6 +40,12 @@ public class ActionLog  {
         return actionLog;
     }
 
+    public static ActionLog delMessage(String nodeId,String id){
+        ActionLog actionLog = new ActionLog().setAction(Action.DELMESSAGE.value);
+        actionLog.setArgs(Arrays.asList(nodeId, id));
+        return actionLog;
+    }
+
     public static ActionLog saveSession(String nodeId,String clientId,boolean reset){
         ActionLog actionLog = new ActionLog().setAction(Action.SAVESESSION.value);
         actionLog.setArgs(Arrays.asList(nodeId,clientId,reset?"y":"n"));
@@ -48,7 +54,7 @@ public class ActionLog  {
 
 
     public static ActionLog delSession(String nodeId,String clientId){
-        ActionLog actionLog = new ActionLog().setAction(Action.SAVESESSION.value);
+        ActionLog actionLog = new ActionLog().setAction(Action.DELSESSION.value);
         return actionLog.setArgs(Arrays.asList(nodeId,clientId));
     }
 
@@ -93,7 +99,7 @@ public class ActionLog  {
 
         public static Action of(String action){
             for (Action value : values()) {
-                if (value.equals(action))
+                if (value.value.equals(action))
                     return value;
             }
 

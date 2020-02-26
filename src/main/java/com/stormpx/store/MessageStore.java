@@ -12,5 +12,9 @@ public interface MessageStore {
 
     void set(String id, MessageObj messageObj);
 
-    void putRetain(String topic,String id);
+    void del(String id);
+
+    Future<String> putRetain(String topic,String id);
+
+    Future<Integer> addAndGetRefCnt(String id,int d);
 }

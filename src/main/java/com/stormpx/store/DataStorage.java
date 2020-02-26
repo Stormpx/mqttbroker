@@ -12,7 +12,6 @@ import io.vertx.core.json.JsonObject;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class DataStorage  {
@@ -24,14 +23,30 @@ public class DataStorage  {
         this.vertx = vertx;
     }
 
-    public void clearSession(String clientId) {
+    public Future<Void> clearSession(String clientId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions CLEAR_SESSION = new DeliveryOptions().addHeader("action", "clearSession");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),CLEAR_SESSION);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),CLEAR_SESSION,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else {
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
-    public void setExpiryTimestamp(String clientId, long expiryTimestamp) {
+    public Future<Void> setExpiryTimestamp(String clientId, long expiryTimestamp) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "setExpiryTimestamp");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("expiryTimestamp",expiryTimestamp),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("expiryTimestamp",expiryTimestamp),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else {
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
     public Future<Long> getExpiryTimestamp(String clientId) {
@@ -49,20 +64,44 @@ public class DataStorage  {
     }
 
 
-    public void link(MessageLink messageLink) {
-        if (messageLink==null)return;
+    public Future<Void> link(MessageLink messageLink) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "link");
-        vertx.eventBus().publish(SOTRE_ADDRESS,messageLink.toJson(),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,messageLink.toJson(),deliveryOptions,ar->{
+            if (ar.succeeded()) {
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
-    public void release(String clientId, int packetId) {
+    public Future<Void> release(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "release");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions,ar->{
+            if (ar.succeeded()) {
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
-    public void receive(String clientId, int packetId) {
+    public Future<Void> receive(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "receive");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions,ar->{
+            if (ar.succeeded()) {
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+
+        return promise.future();
     }
 
 
@@ -82,9 +121,17 @@ public class DataStorage  {
 
 
 
-    public void addPacketId(String clientId, int packetId) {
+    public Future<Void> addPacketId(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "addPacketId");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
 
@@ -107,14 +154,30 @@ public class DataStorage  {
         return promise.future();
     }
 
-    public void removePacketId(String clientId, int packetId) {
+    public Future<Void> removePacketId(String clientId, int packetId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "removePacketId");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("packetId",packetId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
-    public void storeWillMessage(String clientId, JsonObject will) {
+    public Future<Void> storeWillMessage(String clientId, JsonObject will) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "storeWillMessage");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("will",will),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId).put("will",will),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
     public Future<JsonObject> fetchWillMessage(String clientId) {
@@ -131,9 +194,17 @@ public class DataStorage  {
         return promise.future();
     }
 
-    public void dropWillMessage(String clientId) {
+    public Future<Void> dropWillMessage(String clientId) {
+        Promise<Void> promise=Promise.promise();
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader("action", "dropWillMessage");
-        vertx.eventBus().publish(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions);
+        vertx.eventBus().request(SOTRE_ADDRESS,new JsonObject().put("clientId",clientId),deliveryOptions,ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
 

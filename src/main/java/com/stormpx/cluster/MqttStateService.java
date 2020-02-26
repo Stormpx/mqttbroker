@@ -7,16 +7,17 @@ import com.stormpx.cluster.net.Response;
 import com.stormpx.kit.TopicFilter;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.SessionStore;
-import com.stormpx.store.ObjCodec;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.util.*;
+import java.util.function.Function;
 
 public class MqttStateService implements StateService {
     private final static Logger logger= LoggerFactory.getLogger(MqttStateService.class);
@@ -27,13 +28,12 @@ public class MqttStateService implements StateService {
     private MessageStore messageStore;
     private SessionStore sessionStore;
 
-    private Handler<JsonObject> takeoverHandler;
-    private Handler<JsonObject> publishHandler;
+    private Map<String, Function<JsonObject,Future<?>>> handlerMap;
+
 
     private TopicFilter topicFilter;
 
     private Map<String,Map<Integer, Promise<Void>>> mapMap;
-
 
     //key nodeId value requestId
     private Map<String,Set<Integer>> idempotentMap;
@@ -44,13 +44,13 @@ public class MqttStateService implements StateService {
     //key clientId value nodeIds
     private Map<String,Set<String>> sessionMap;
 
-
     private List<Handler<Void>> pending;
 
     public MqttStateService(Vertx vertx, MessageStore messageStore, SessionStore sessionStore) {
         this.vertx = vertx;
         this.messageStore=messageStore;
         this.sessionStore=sessionStore;
+        this.handlerMap=new HashMap<>();
         this.topicFilter=new TopicFilter();
         this.retainMap=new HashMap<>();
         this.idIndexMap=new HashMap<>();
@@ -65,8 +65,22 @@ public class MqttStateService implements StateService {
     @Override
     public Future<Void> init(MqttCluster mqttCluster) {
         this.mqttCluster=mqttCluster;
+        addHandler("/addLog",body->{
+            String nodeId = body.getString("rpc-nodeId");
+            Integer requestId = body.getInteger("rpc-requestId",0);
+            body.remove("rpc-nodeId");
+            body.remove("rpc-requestId");
+            if (mqttCluster.getMemberType()!=MemberType.LEADER) {
+                return Future.succeededFuture();
+            }else {
+                return addLog(nodeId, requestId, body.toBuffer())
+                        .map(v->Buffer.buffer());
+            }
+        });
+
         return Future.succeededFuture();
     }
+
 
 
     @Override
@@ -76,8 +90,37 @@ public class MqttStateService implements StateService {
 
         ProMessage proMessage = ProMessage.decode(rpcMessage.getBuffer());
 
-        Promise<Response> promise=Promise.promise();
-        JsonObject body = proMessage.getBody();
+//        Promise<Response> promise=Promise.promise();
+
+        String res = proMessage.getRes();
+        Function<JsonObject, Future<?>> function = handlerMap.get(res);
+        if (function==null){
+            return Future.succeededFuture(new Response().setSuccess(false));
+        }else{
+            JsonObject body = proMessage.getBody();
+            body.put("rpc-nodeId",nodeId)
+                .put("rpc-requestId",requestId);
+
+            return function.apply(body)
+                    .map(o->{
+                        if (o==null){
+                            return new Response().setSuccess(false);
+                        } else if (o instanceof Buffer){
+                            return new Response().setSuccess(true).setPayload((Buffer) o);
+                        }else if (o instanceof JsonObject){
+                            return new Response().setSuccess(true).setPayload( ((JsonObject) o).toBuffer());
+                        }else if (o instanceof JsonArray){
+                            return new Response().setSuccess(true).setPayload( ((JsonArray) o).toBuffer());
+                        }else if (o instanceof String){
+                            return new Response().setSuccess(true).setPayload(Buffer.buffer((String) o));
+                        }else if (o instanceof Boolean){
+                            return new Response().setSuccess((Boolean) o);
+                        } else{
+                            return new Response().setSuccess(true).setPayload(Json.encodeToBuffer(o));
+                        }
+                    });
+        }
+        /*JsonObject body = proMessage.getBody();
         switch (proMessage.getRequestType()){
             case SESSION:
                 String clientId = body.getString("clientId");
@@ -99,6 +142,7 @@ public class MqttStateService implements StateService {
                             if (ar.succeeded()&&ar.result()!=null){
                                 promise.complete(new Response().setSuccess(true).setPayload(new ObjCodec().encodeMessageObj(ar.result())));
                             }else{
+                                logger.error("get message id:{} fail",ar.cause());
                                 promise.complete(new Response().setSuccess(false));
                             }
                         });
@@ -130,20 +174,25 @@ public class MqttStateService implements StateService {
         //dis retainMessage sessionIndex messageIndex req -->exec&resp after headrtbeat
         //messagereq sessionreq takenoversession --> respimmd
 
-        return promise.future();
+        return promise.future();*/
     }
+
+    public void addHandler(String resource,Function<JsonObject,Future<?>> handler){
+        handlerMap.put(resource,handler);
+    }
+
 
     public void addPendingEvent(Handler<Void> handler){
         pending.add(handler);
     }
 
 
-    public Future<Map<String,String>> retainMap(List<String> topicFilters){
+    public Future<Map<String,String>> retainMap(){
         Promise<Map<String,String>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                    if (ar.failed()){
-                       pending.add(v-> retainMap(topicFilters).onComplete(promise));
+                       pending.add(v-> retainMap().onComplete(promise));
                    }else{
                        promise.complete(retainMap);
                    }
@@ -192,7 +241,7 @@ public class MqttStateService implements StateService {
                     }else{
                         HashMap<String,Set<String>> map = ids.stream().reduce(new HashMap<>(), (m, s) -> {
                             Set<String> set = idIndexMap.get(s);
-                            if (set != null) m.put(s, set);
+                            if (set != null) m.put(s, Set.copyOf(set));
                             return m;
                         }, (q1, q2) -> q1);
                         promise.complete(map);
@@ -271,7 +320,12 @@ public class MqttStateService implements StateService {
                 idIndexSet.add(nodeId);
                 break;
             case DELMESSAGE:
-                //todo
+                args = actionLog.getArgs();
+                nodeId = args.get(0);
+                String id = args.get(1);
+                Set<String> set = idIndexMap.get(id);
+                if (set!=null)
+                    set.remove(nodeId);
                 break;
             case SAVESESSION:
                 args = actionLog.getArgs();
@@ -281,6 +335,9 @@ public class MqttStateService implements StateService {
                 Set<String> clientIdIndexSet = sessionMap.computeIfAbsent(clientId, k -> new HashSet<>());
                 if ("y".equals(reset)) {
                     clientIdIndexSet.clear();
+                    if (!nodeId.equals(mqttCluster.id())){
+                        sessionStore.del(clientId);
+                    }
                 }
                 clientIdIndexSet.add(nodeId);
                 break;
@@ -309,13 +366,4 @@ public class MqttStateService implements StateService {
     }
 
 
-    public MqttStateService publishHandler(Handler<JsonObject> publishHandler) {
-        this.publishHandler = publishHandler;
-        return this;
-    }
-
-    public MqttStateService takeoverHandler(Handler<JsonObject> takeoverHandler) {
-        this.takeoverHandler = takeoverHandler;
-        return this;
-    }
 }

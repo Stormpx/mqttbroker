@@ -10,8 +10,10 @@ import io.vertx.core.buffer.Buffer;
 
 public class SocketHandler implements Handler<Buffer> {
     private MessageType messageType;
-    private Integer nodeIdLength;
-    private String nodeId;
+    private Integer targetIdLength;
+    private String targetId;
+    private Integer fromIdLength;
+    private String fromId;
     private Integer requestId;
     private CompositeByteBuf buf;
     private Integer payloadLength;
@@ -40,16 +42,27 @@ public class SocketHandler implements Handler<Buffer> {
                 return;
             messageType=MessageType.valueOf(buf.readByte());
         }
-        if (nodeIdLength==null){
+        if (targetIdLength ==null){
             if (buf.readableBytes()<2)
                 return;
-            nodeIdLength=buf.readUnsignedShort();
+            targetIdLength =buf.readUnsignedShort();
         }
-        if (nodeId==null){
-            if (buf.readableBytes()<nodeIdLength){
+        if (targetId ==null){
+            if (buf.readableBytes()< targetIdLength){
                 return;
             }
-            nodeId=buf.readSlice(nodeIdLength).toString(CharsetUtil.UTF_8);
+            targetId =buf.readSlice(targetIdLength).toString(CharsetUtil.UTF_8);
+        }
+        if (fromIdLength ==null){
+            if (buf.readableBytes()<2)
+                return;
+            fromIdLength =buf.readUnsignedShort();
+        }
+        if (fromId ==null){
+            if (buf.readableBytes()< fromIdLength){
+                return;
+            }
+            fromId =buf.readSlice(fromIdLength).toString(CharsetUtil.UTF_8);
         }
         if (messageType==MessageType.REQUEST&&requestId==null){
             if (buf.readableBytes()<4) {
@@ -68,7 +81,7 @@ public class SocketHandler implements Handler<Buffer> {
             Handler<RpcMessage> handler = this.handler;
             if (handler!=null) {
                 try {
-                    handler.handle(new RpcMessage().setMessageType(messageType).setFromId(nodeId).setRequestId(requestId).setRequestId(requestId==null?0:requestId).setBuffer(payload));
+                    handler.handle(new RpcMessage(messageType,targetId,fromId,requestId==null?0:requestId,payload));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -80,8 +93,10 @@ public class SocketHandler implements Handler<Buffer> {
     }
     private void resetState(){
         payloadLength =null;
-        nodeIdLength=null;
-        nodeId=null;
+        targetIdLength=null;
+        targetId=null;
+        fromIdLength =null;
+        fromId =null;
         messageType=null;
         requestId=null;
     }

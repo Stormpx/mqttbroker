@@ -1,5 +1,6 @@
 package com.stormpx.cluster.net;
 
+import com.stormpx.cluster.message.MessageType;
 import com.stormpx.cluster.message.RpcMessage;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.net.NetSocket;
@@ -21,7 +22,8 @@ public class Request {
     }
 
     public void response(boolean success, Buffer buffer){
-        netCluster.rpcResponse(netSocket,rpcMessage.getRequestId(),success,buffer);
+        RpcMessage rpcMessage = new RpcMessage(MessageType.RESPONSE, this.rpcMessage.getFromId(), this.rpcMessage.getTargetId(), this.rpcMessage.getRequestId(), Buffer.buffer().appendByte((byte) (success ? 1 : 0)).appendBuffer(buffer));
+        netCluster.tryResponse(netSocket,rpcMessage);
     }
 
 }

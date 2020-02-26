@@ -2,6 +2,8 @@ package com.stormpx;
 
 import com.stormpx.kit.J;
 import com.stormpx.mqtt.MqttSubscription;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.json.JsonArray;
@@ -16,6 +18,19 @@ public class Dispatcher {
         this.vertx = vertx;
     }
 
+    public Future<Boolean> sessionPresent(String clientId){
+        Promise<Boolean> promise=Promise.promise();
+        vertx.eventBus().<Boolean>request("_client_session_present",clientId,ar->{
+            if (ar.succeeded()){
+                Boolean r = ar.result().body();
+                promise.complete(r==null?false:r);
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
+    }
+
     public void sessionAccept(String clientId,boolean cleanSession){
         vertx.eventBus().send("_client_accept_",new JsonObject().put("clientId",clientId).put("cleanSession",cleanSession));
     }
@@ -25,13 +40,29 @@ public class Dispatcher {
     }
 
 
-    public void subscribeTopic(String clientId, List<MqttSubscription> mqttSubscriptions, Integer identifier){
+    public Future<Void> subscribeTopic(String clientId, List<MqttSubscription> mqttSubscriptions, Integer identifier){
+        Promise<Void> promise=Promise.promise();
         JsonArray jsonArray = mqttSubscriptions.stream().map(MqttSubscription::toJson).peek(json->json.put("identifier",identifier)).collect(J.toJsonArray());
-        vertx.eventBus().send("_topic_subscribe_",new JsonObject().put("clientId",clientId).put("subscriptions",jsonArray));
+        vertx.eventBus().send("_topic_subscribe_",new JsonObject().put("clientId",clientId).put("subscriptions",jsonArray), ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
-    public void unSubscribeTopic(String clientId, List<String> topics){
-        vertx.eventBus().send("_topic_subscribe_",new JsonObject().put("clientId",clientId).put("topics",new JsonArray(topics)));
+    public Future<Void> unSubscribeTopic(String clientId, List<String> topics){
+        Promise<Void> promise=Promise.promise();
+        vertx.eventBus().send("_topic_subscribe_",new JsonObject().put("clientId",clientId).put("topics",new JsonArray(topics)),ar->{
+            if (ar.succeeded()){
+                promise.complete();
+            }else{
+                promise.fail(ar.cause());
+            }
+        });
+        return promise.future();
     }
 
     public void matchRetainMessage(String address,List<String> topicFilters){

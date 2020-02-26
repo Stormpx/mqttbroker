@@ -5,7 +5,7 @@ import io.vertx.core.json.JsonObject;
 import java.time.Instant;
 
 public class MessageObj {
-    private int rnf=0;
+    private int refCnt =0;
 
     private long timestamp= Instant.now().getEpochSecond();
 
@@ -22,15 +22,20 @@ public class MessageObj {
 
 
     public int add(int rnf){
-        this.rnf+=rnf;
-        return this.rnf;
+        this.refCnt +=rnf;
+        return this.refCnt;
     }
 
-    public int getRnf() {
-        return rnf;
+    public int getRefCnt() {
+        return refCnt;
     }
 
     public long getTimestamp() {
         return timestamp;
+    }
+
+    @Override
+    public String toString() {
+        return "MessageObj{" + "refCnt=" + refCnt + ", message=" + message + '}';
     }
 }

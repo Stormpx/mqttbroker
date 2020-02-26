@@ -15,6 +15,7 @@ import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.util.*;
+import java.util.function.Function;
 
 
 public abstract class AbstractMqttContext implements MqttContext {
@@ -26,7 +27,7 @@ public abstract class AbstractMqttContext implements MqttContext {
 
     protected Handler<MqttPublishMessage> publishHandler;
     protected Handler<Integer> publishAcknowledgeHandler;
-    protected Handler<Integer> publishReceiveHandler;
+    protected Function<Integer,Future<Void>> publishReceiveHandler;
     protected Handler<Integer> publishReleaseHandler;
     protected Handler<Integer> publishCompleteHandler;
     protected Handler<MqttSubscribeMessage> subscribeHandler;
@@ -229,12 +230,17 @@ public abstract class AbstractMqttContext implements MqttContext {
             publishComplete(pubRecPacket.getPacketIdentifier());
             writeNext();
         }else {
-            MqttInFlightMessage mqttInFlightMessage = inFlightMap.get(pubRecPacket.getPacketIdentifier());
-            if (mqttInFlightMessage != null) {
-                mqttInFlightMessage.setReceived(true);
-            }
-            //call receive voteHandler
-            publishReceive(pubRecPacket.getPacketIdentifier());
+
+            //call receive handler
+            publishReceive(pubRecPacket.getPacketIdentifier())
+                    .onFailure(this::handleException)
+                    .onSuccess(v->{
+                        MqttInFlightMessage mqttInFlightMessage = inFlightMap.get(pubRecPacket.getPacketIdentifier());
+                        if (mqttInFlightMessage != null) {
+                            mqttInFlightMessage.setReceived(true);
+                        }
+                        publishRelease( pubRecPacket.getPacketIdentifier(),ReasonCode.SUCCESS,null,null);
+                    });
         }
     }
 
@@ -249,9 +255,6 @@ public abstract class AbstractMqttContext implements MqttContext {
         int packetId = pubRelPacket.getPacketIdentifier();
         if (!mqttSession.containsPacketId(packetId)){
             publishComplete(packetId,ReasonCode.PACKET_IDENTIFIER_NOT_FOUND,null,"packet identifier not found");
-        }else{
-            publishComplete(packetId,ReasonCode.SUCCESS,null,null);
-            mqttSession.removePacketId(packetId);
         }
         publishRelease(packetId);
     }
@@ -535,7 +538,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     @Override
-    public MqttContext publishReceiveHandler(Handler<Integer> handler) {
+    public MqttContext publishReceiveHandler(Function<Integer,Future<Void>> handler) {
         this.publishReceiveHandler =handler;
         return this;
     }
@@ -589,7 +592,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     * release packetId and call voteHandler
+     * release packetId and call handler
      * @param messageId packetId
      */
     private void publishAcknowledge(int messageId){
@@ -600,16 +603,17 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     *  call voteHandler
+     *  call handler
      * @param messageId packetId
      */
-    private void publishReceive(int messageId){
+    private Future<Void> publishReceive(int messageId){
         if (publishReceiveHandler !=null){
-            publishReceiveHandler.handle(messageId);
+            return publishReceiveHandler.apply(messageId);
         }
+        return Future.succeededFuture();
     }
     /**
-     *  call voteHandler
+     *  call handler
      * @param messageId packetId
      */
     private void publishRelease(int messageId){
@@ -620,7 +624,7 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     /**
-     * release packetId and call voteHandler
+     * release packetId and call handler
      * @param messageId packetId
      */
     private void publishComplete(int messageId){
