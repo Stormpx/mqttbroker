@@ -120,7 +120,7 @@ public class MqttStoreVerticle extends AbstractVerticle {
                             case "dropWillMessage":
                                 dropWillMessage((JsonObject)body);
                                 break;
-                            case "retainMap":
+                            case "retainMapWithReadIndex":
                                 message.reply(filterMatchMessage((JsonObject)body));
                                 break;
                         }

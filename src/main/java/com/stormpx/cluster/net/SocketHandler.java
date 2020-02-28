@@ -64,7 +64,7 @@ public class SocketHandler implements Handler<Buffer> {
             }
             fromId =buf.readSlice(fromIdLength).toString(CharsetUtil.UTF_8);
         }
-        if (messageType==MessageType.REQUEST&&requestId==null){
+        if (requestId==null&&(messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)){
             if (buf.readableBytes()<4) {
                 return;
             }

@@ -53,10 +53,10 @@ public class NetSocketWrapper implements MqttSocket {
 
     private void initChannel(ChannelHandlerContext ctx, MqttSessionOption sessionOption){
         ChannelPipeline pipeline = ctx.pipeline();
-        pipeline.addBefore("voteHandler","mqttEncoder",new MqttEncoder(sessionOption));
-        pipeline.addBefore("voteHandler","mqttDecoder",new MqttDecoder());
-        pipeline.addBefore("voteHandler","idleState",new IdleStateHandler(5,0,0));
-        pipeline.addBefore("voteHandler","readTimeoutHandler",new ChannelDuplexHandler(){
+        pipeline.addBefore("handler","mqttEncoder",new MqttEncoder(sessionOption));
+        pipeline.addBefore("handler","mqttDecoder",new MqttDecoder());
+        pipeline.addBefore("handler","idleState",new IdleStateHandler(5,0,0));
+        pipeline.addBefore("handler","readTimeoutHandler",new ChannelDuplexHandler(){
             @Override
             public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
                 if (evt== IdleState.READER_IDLE){

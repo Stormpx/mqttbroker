@@ -37,6 +37,7 @@ public abstract class AbstractMqttContext implements MqttContext {
 
 
     private String id;
+    protected boolean accept;
     protected boolean connectAck;
     protected boolean takenOver;
     protected MqttVersion version;
@@ -369,6 +370,11 @@ public abstract class AbstractMqttContext implements MqttContext {
     }
 
     @Override
+    public boolean isAccept() {
+        return accept;
+    }
+
+    @Override
     public List<StringPair> userProperty() {
         return userProperty;
     }
@@ -494,6 +500,7 @@ public abstract class AbstractMqttContext implements MqttContext {
         accept0(sessionPresent);
         //set channel
         connectAck=true;
+        accept=true;
         mqttSocket.setKeepAlive(keepAlive);
         mqttSocket.resume();
         return this;

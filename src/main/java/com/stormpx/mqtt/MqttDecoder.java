@@ -291,7 +291,6 @@ public class MqttDecoder extends ByteToMessageDecoder {
         }
 
         ByteBuf payload= Unpooled.copiedBuffer(buf.readSlice(length));
-
         return new MqttPublishPacket(fixedHeader,topicName,packetIdentifier,properties,payload);
     }
 

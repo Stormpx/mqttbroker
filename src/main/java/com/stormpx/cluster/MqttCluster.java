@@ -40,7 +40,7 @@ public class MqttCluster {
     private TimeoutStream timeoutStream;
 
     private Deque<ReadState> deque;
-    private Map<String,Promise<Integer>> readIndexMap;
+    private Map<String,ReadState> readIndexMap;
 
 
     public MqttCluster(Vertx vertx, JsonObject config, ClusterDataStore clusterDataStore, StateService stateService, ClusterClient clusterClient) {
@@ -59,11 +59,10 @@ public class MqttCluster {
         this.deque=new LinkedList<>();
         this.readIndexMap=new HashMap<>();
         vertx.eventBus().registerDefaultCodec(LogEntry.class,LogEntry.CODEC);
-        clusterClient.init(this);
-        return stateService.init(this)
-                .compose(v->loadClusterState())
+        return clusterClient.init(this)
+                .compose(v->stateService.init(this))
+                .compose(v->loadClusterState(nodeId))
                 .compose(v->{
-                    this.clusterState.setId(nodeId);
                     this.netCluster=new NetClusterImpl(vertx,config);
                     return this.netCluster.appendEntriesRequestHandler(this::handleAppendEntriesRequest)
                             .appendEntriesResponseHandler(this::handleAppendEntriesResponse)
@@ -79,13 +78,14 @@ public class MqttCluster {
 
     }
 
-    private Future<ClusterState> loadClusterState() {
+    private Future<ClusterState> loadClusterState(String id) {
         return clusterDataStore.getState()
                 .compose(state-> clusterDataStore.logs().map(list-> Values2.values(state,list)))
                 .map(v->{
                     JsonObject state = v.getOne();
                     List<LogEntry> logEntryList = v.getTwo();
-                    ClusterState clusterState = new ClusterState();
+                    this.clusterState = new ClusterState();
+                    clusterState.setId(id);
                     if (state!=null){
                         clusterState.setCurrentTerm(state.getInteger("term"));
                         clusterState.setLastIndex(state.getInteger("lastIndex"));
@@ -103,7 +103,7 @@ public class MqttCluster {
                                 });
                         clusterState.setLastApplied(commitIndex);
                     }
-                    this.clusterState=clusterState;
+
                     return clusterState;
                 });
     }
@@ -125,80 +125,90 @@ public class MqttCluster {
     }
 
     private void handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest){
-
         AppendEntriesMessage appendEntriesMessage =
                 appendEntriesRequest.getAppendEntriesMessage();
-        logger.debug("AppendEntriesRequest from node: {} term: {} currentTerm: {}  ",appendEntriesMessage.getLeaderId(),appendEntriesMessage.getTerm(),clusterState.getCurrentTerm());
-        int prevLogIndex = appendEntriesMessage.getPrevLogIndex();
-        if (appendEntriesMessage.getTerm()<clusterState.getCurrentTerm()){
-            //false
-            appendEntriesRequest.response(clusterState.getCurrentTerm(),prevLogIndex,false);
-            return;
-        }
+        logger.debug("AppendEntriesRequest from node: {} term: {} currentTerm: {} leaderCommitIndex :{} currentCommitIndex:{}  ",
+                appendEntriesMessage.getLeaderId(),appendEntriesMessage.getTerm(),clusterState.getCurrentTerm(),appendEntriesMessage.getLeaderCommit(),clusterState.getCommitIndex(),
+                appendEntriesMessage.getLeaderCommit(),clusterState.getCommitIndex());
+        try {
+            int prevLogIndex = appendEntriesMessage.getPrevLogIndex();
+            if (appendEntriesMessage.getTerm()<clusterState.getCurrentTerm()){
+                //false
+                appendEntriesRequest.response(clusterState.getCurrentTerm(),prevLogIndex,false);
+                return;
+            }
 
-        this.leaderId=appendEntriesMessage.getLeaderId();
+            this.leaderId=appendEntriesMessage.getLeaderId();
 
-        boolean success=true;
-        int requestLastIndex=prevLogIndex;
+            boolean success=true;
+            int requestLastIndex=prevLogIndex;
 
-        LogEntry prevLog = clusterState.getLog(prevLogIndex);
-        if (prevLogIndex !=0&& (prevLog ==null|| prevLog.getTerm()!=appendEntriesMessage.getPrevLogTerm())){
-            //false
-            success=false;
-        }
-        if (success) {
-            List<LogEntry> logEntries = Optional.ofNullable(appendEntriesMessage.getEntries()).orElse(Collections.emptyList());
-            for (LogEntry logEntry : logEntries) {
-                LogEntry log = clusterState.getLog(logEntry.getIndex());
-                if (log!=null){
-                    //delete log
-                    if (log.getTerm()!=logEntry.getTerm()){
-                        int index = logEntry.getIndex();
-                        int lastIndex = clusterState.getLastIndex();
-                        if (index<lastIndex){
-                            clusterState.setLastIndex(index);
+            LogEntry prevLog = clusterState.getLog(prevLogIndex);
+            if (prevLogIndex !=0&& (prevLog ==null|| prevLog.getTerm()!=appendEntriesMessage.getPrevLogTerm())){
+                //false
+                success=false;
+            }
+            if (success) {
+                List<LogEntry> logEntries = Optional.ofNullable(appendEntriesMessage.getEntries()).orElse(Collections.emptyList());
+                for (LogEntry logEntry : logEntries) {
+                    LogEntry log = clusterState.getLog(logEntry.getIndex());
+                    if (log!=null){
+                        //delete log
+                        if (log.getTerm()!=logEntry.getTerm()){
+                            int index = logEntry.getIndex();
+                            int lastIndex = clusterState.getLastIndex();
+                            if (index<lastIndex){
+                                clusterState.setLastIndex(index);
+                            }
+                            clusterDataStore.delLog(index,lastIndex);
+                            while (index<= lastIndex){
+                                clusterState.delLog(index++);
+                            }
+
+                            clusterState.setLog(logEntry);
+                            clusterDataStore.saveLog(logEntry);
                         }
-                        clusterDataStore.delLog(index,lastIndex);
-                        while (index<= lastIndex){
-                            clusterState.delLog(index++);
-                        }
+                    }else{
+                        //new log
+                        if (logEntry.getIndex()>clusterState.getLastIndex())
+                            clusterState.setLastIndex(logEntry.getIndex());
 
                         clusterState.setLog(logEntry);
+
                         clusterDataStore.saveLog(logEntry);
                     }
-                }else{
-                    //new log
-                    if (logEntry.getIndex()>clusterState.getLastIndex())
-                        clusterState.setLastIndex(logEntry.getIndex());
 
-                    clusterState.setLog(logEntry);
-
-                    clusterDataStore.saveLog(logEntry);
                 }
 
+                if (appendEntriesMessage.getLeaderCommit() > clusterState.getCommitIndex()) {
+                    int commitIndex=Math.min(appendEntriesMessage.getLeaderCommit(),logEntries.isEmpty()?Integer.MAX_VALUE: logEntries.get(0).getIndex());
+                    clusterState.setCommitIndex(commitIndex);
+
+                }
+                applyCommitIndex();
+
+                fireReadIndex();
+                stateService.firePendingEvent(appendEntriesMessage.getLeaderId());
+
+                if (!logEntries.isEmpty())
+                    requestLastIndex= logEntries.get(logEntries.size()-1).getIndex();
             }
+            becomeFollower(appendEntriesMessage.getTerm());
 
-            if (appendEntriesMessage.getLeaderCommit() > clusterState.getCommitIndex()) {
-                int commitIndex=Math.min(appendEntriesMessage.getLeaderCommit(),logEntries.isEmpty()?Integer.MAX_VALUE: logEntries.get(0).getIndex());
-                clusterState.setCommitIndex(commitIndex);
 
-            }
-            applyCommitIndex();
-
-            stateService.firePendingEvent(appendEntriesMessage.getLeaderId());
-
-            if (!logEntries.isEmpty())
-                requestLastIndex= logEntries.get(logEntries.size()-1).getIndex();
+            //response
+            appendEntriesRequest.response(clusterState.getCurrentTerm(),requestLastIndex,success);
+        } catch (Exception e) {
+            //false
+            appendEntriesRequest.response(clusterState.getCurrentTerm(),appendEntriesMessage.getPrevLogIndex(),false);
+            logger.error("handle appendEntriesRequest failed ",e);
         }
-        becomeFollower(appendEntriesMessage.getTerm());
-
-
-
-        //response
-        appendEntriesRequest.response(clusterState.getCurrentTerm(),requestLastIndex,success);
     }
 
     private void handleAppendEntriesResponse(AppendEntriesResponse response){
+        logger.debug("response from node:{} success:{} term:{} lastIndex:{} currentTrem:{}",
+                response.getNodeId(),response.isSuccess(),response.getTerm(),response.getRequestLastIndex(),clusterState.getCurrentTerm());
+
         if (response.getTerm()>clusterState.getCurrentTerm()){
             becomeFollower(response.getTerm());
             this.leaderId=null;
@@ -235,6 +245,7 @@ public class MqttCluster {
             counter.add(nodeId);
             if (counter.isMajority()){
                 this.counter=new Counter(netCluster.nodes().size());
+                this.counter.add(clusterState.getId());
                 fireReadIndex();
                 stateService.firePendingEvent(clusterState.getId());
             }
@@ -310,25 +321,21 @@ public class MqttCluster {
 
     private void handleReadIndexResponse(ReadIndexResponse readIndexResponse){
         String id = readIndexResponse.getId();
-        Promise<Integer> promise = readIndexMap.remove(id);
+        ReadState readState = readIndexMap.remove(id);
+        if (readState==null)
+            return;
+        Promise<Integer> promise = readState.promise;
         if (!readIndexResponse.isLeader()){
             if (promise!=null)
                 promise.tryFail("fail");
             return;
         }
-        if (promise==null)
-            return;
-        int readIndex = readIndexResponse.getReadIndex();
 
-        ReadState readState = new ReadState(readIndex);
-        readState.promise.future().setHandler(ar->{
-            if (ar.succeeded()){
-                promise.tryComplete(readState.readIndex);
-            }else{
-                promise.tryFail(ar.cause());
-            }
-        });
+        int readIndex = readIndexResponse.getReadIndex();
+        readState.readIndex(readIndex);
+
         deque.addLast(readState);
+        fireReadIndex();
     }
 
 
@@ -350,15 +357,15 @@ public class MqttCluster {
 
     private void fireReadIndex(){
         int lastApplied = clusterState.getLastApplied();
-        while (!deque.isEmpty()){
-            ReadState state = deque.peek();
-            if (state.readIndex>lastApplied)
-                break;
+        Iterator<ReadState> iterator = deque.iterator();
+        while (iterator.hasNext()){
 
-            state.promise.tryComplete(state.readIndex);
-
-            deque.poll();
-
+            ReadState readState = iterator.next();
+            if (readState.readIndex>lastApplied){
+                continue;
+            }
+            readState.promise.tryComplete(readState.readIndex);
+            iterator.remove();
         }
     }
 
@@ -422,6 +429,7 @@ public class MqttCluster {
         this.memberType=MemberType.LEADER;
         netCluster.initNodeIndex(clusterState.getLastIndex()+1);
         this.counter =new Counter(netCluster.nodes().size());
+        this.counter.add(clusterState.getId());
         this.leaderId=clusterState.getId();
         clusterState.setVotedFor(null);
         //add nop
@@ -449,7 +457,7 @@ public class MqttCluster {
         this.memberType=MemberType.CANDIDATES;
         clusterState.setCurrentTerm(clusterState.getCurrentTerm()+1);
         clusterState.setVotedFor(clusterState.getId());
-        this.counter =new Counter(netCluster.nodes().size()+1);
+        this.counter =new Counter(netCluster.nodes().size());
         this.counter.add(clusterState.getId());
         logger.debug("start vote term: {}",clusterState.getCurrentTerm());
         sendVoteRequest(false);
@@ -509,33 +517,30 @@ public class MqttCluster {
 
 
     public Future<Integer> readIndex(){
+        String id = UUID.randomUUID().toString();
         if (this.memberType==MemberType.LEADER) {
             ReadState readState = deque.peekLast();
             if (readState != null) {
                 if (readState.readIndex == clusterState.readIndex())
                     return readState.promise.future();
             }
-            ReadState state = new ReadState(clusterState.readIndex());
+            ReadState state = new ReadState(id);
+            state.readIndex(clusterState.readIndex());
             deque.addLast(state);
+
             return state.promise.future();
         }else{
             if (this.leaderId==null){
                 return Future.failedFuture("no leader");
             }
-            Promise<Integer> promise=Promise.promise();
-            String id = UUID.randomUUID().toString();
+            ReadState readState = new ReadState(id);
+            readState.setTimer();
 
-            readIndexMap.put(id,promise);
+            readIndexMap.put(id,readState);
+
             netCluster.requestReadIndex(leaderId,id);
 
-            TimeoutStream timeoutStream = vertx.timerStream(300);
-            timeoutStream.handler(v->{
-                Promise<Integer> p = readIndexMap.remove(id);
-                if (p!=null){
-                    p.tryFail("timeout");
-                }
-            });
-            return promise.future().onComplete(v->timeoutStream.cancel());
+            return readState.promise.future();
         }
 
     }
@@ -580,14 +585,39 @@ public class MqttCluster {
 
 
     class ReadState{
-        private int readIndex;
+        private String id;
+        private Integer readIndex;
         private Promise<Integer> promise;
+        private TimeoutStream timeoutStream;
 
-        public ReadState(int readIndex) {
-            this.readIndex = readIndex;
+
+        public ReadState(String id) {
+            this.id=id;
             this.promise=Promise.promise();
         }
 
+        public ReadState readIndex(Integer readIndex){
+            if (this.timeoutStream!=null)
+                this.timeoutStream.cancel();
+
+            this.readIndex = readIndex;
+            return this;
+        }
+
+        public void setTimer(){
+            this.timeoutStream=vertx.timerStream(5100);
+            this.timeoutStream.handler(id->{
+                readIndexMap.remove(this.id);
+                logger.debug("readIndex timeout id:{}",this.id);
+                if (promise!=null){
+                    promise.tryFail("timeout");
+                }
+            });
+            this.promise.future().onComplete(v->{
+                if (this.timeoutStream!=null)
+                    this.timeoutStream.cancel();
+            });
+        }
     }
 
 }

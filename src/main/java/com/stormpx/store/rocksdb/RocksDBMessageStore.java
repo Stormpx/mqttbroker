@@ -3,21 +3,21 @@ package com.stormpx.store.rocksdb;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.ObjCodec;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import org.rocksdb.*;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class RocksDBMessageStore implements MessageStore {
     private final static Logger logger= LoggerFactory.getLogger(RocksDBMessageStore.class);
@@ -42,15 +42,14 @@ public class RocksDBMessageStore implements MessageStore {
         Promise<Map<String,String>> promise=Promise.promise();
         vertx.executeBlocking(p->{
             String prefix="retain-";
-            RocksIterator rocksIterator = rocksDB.newIterator();
-            rocksIterator.seek(prefix.getBytes());
             Map<String,String> map=new HashMap<>();
-            while (rocksIterator.isValid()){
-                String topic = new String(rocksIterator.key()).substring(0, prefix.length());
+            RocksIterator rocksIterator = rocksDB.newIterator();
+            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);rocksIterator.next()){
+                String topic = new String(rocksIterator.key()).substring(prefix.length());
                 String id = new String(rocksIterator.value());
                 map.put(topic,id);
-                rocksIterator.next();
             }
+            rocksIterator.close();
             p.complete(map);
         },promise);
         return promise.future();
@@ -87,7 +86,10 @@ public class RocksDBMessageStore implements MessageStore {
     public void del(String id) {
         vertx.executeBlocking(p->{
             try {
+                WriteBatch writeBatch = new WriteBatch();
                 rocksDB.delete(id.getBytes());
+                rocksDB.delete(("refcnt-"+id).getBytes());
+                rocksDB.write(new WriteOptions().setSync(false),writeBatch);
             } catch (RocksDBException e) {
                 logger.error("del id:{} fail",id);
             }
@@ -126,12 +128,11 @@ public class RocksDBMessageStore implements MessageStore {
                 synchronized(key.intern()) {
                     byte[] keyBytes = key.getBytes();
                     byte[] value = rocksDB.get(keyBytes);
-                    if (value == null) {
-                        p.complete();
-                        return;
+                    int count =0;
+                    if (value != null) {
+                        count = Buffer.buffer(value).getInt(0);
                     }
-                    int count = Buffer.buffer(value).getInt(0);
-                    count -= 1;
+                    count += d;
                     r=count;
                     rocksDB.put(keyBytes, Buffer.buffer().appendInt(count).getBytes());
                 }

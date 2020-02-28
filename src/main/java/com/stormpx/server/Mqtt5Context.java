@@ -229,6 +229,7 @@ public class Mqtt5Context extends AbstractMqttContext {
         }
         MqttConnAckPacket packet=new MqttConnAckPacket(FixedHeader.CONNACK,
                 code.byteValue(),ackProperties==null?Collections.emptyList():ackProperties,false);
+        connectAck=true;
         mqttSocket.writePacket(packet,ar->{
            close();
         });
@@ -281,6 +282,7 @@ public class Mqtt5Context extends AbstractMqttContext {
         List<MqttProperties> properties= Arrays.asList(new MqttProperties(MqttProperty.SERVER_REFERENCE,serverReference));
         MqttConnAckPacket packet=new MqttConnAckPacket(FixedHeader.CONNACK,
                 (permanent?ReasonCode.SERVER_MOVED:ReasonCode.USE_ANOTHER_SERVER).byteValue(),properties,false);
+        connectAck=true;
         mqttSocket.writePacket(packet,ar->{
             close();
         });

@@ -53,7 +53,8 @@ public class NetClusterImpl implements NetCluster {
         this.id=config.getString("id");
         Promise<NetServer> promise=Promise.promise();
         this.netServer.connectHandler(netSocket->{
-            System.out.println("new socket");
+
+            logger.debug("new socket address: {}",netSocket.remoteAddress());
             netSockets.add(netSocket);
             SocketHandler socketHandler = new SocketHandler();
             socketHandler.messageHandler(msg-> callHandler(netSocket,msg));
@@ -99,6 +100,10 @@ public class NetClusterImpl implements NetCluster {
             proxy(rpcMessage);
             return;
         }
+        if (logger.isDebugEnabled())
+            logger.debug("receive messageType:{} targetId:{} fromId:{} requestId:{} payload: {}",
+                    rpcMessage.getMessageType(),rpcMessage.getTargetId(),rpcMessage.getFromId(),rpcMessage.getRequestId(),rpcMessage.getBuffer());
+
         switch (rpcMessage.getMessageType()){
 
             case APPENDENTRIESREQUEST:
@@ -209,22 +214,36 @@ public class NetClusterImpl implements NetCluster {
     }
 
     void tryResponse(NetSocket netSocket,RpcMessage rpcMessage){
+
         if (!netSockets.contains(netSocket)){
             // other way
             sendOrProxy(rpcMessage);
             return;
         }
+        logRpcMessage(rpcMessage);
+
         netSocket.write(rpcMessage.encode());
     }
 
     private void sendOrProxy(RpcMessage rpcMessage){
+
         ClusterNode clusterNode = nodeMap.get(rpcMessage.getTargetId());
         if (clusterNode.isActive()){
+           logRpcMessage(rpcMessage);
             clusterNode.send(rpcMessage.encode());
         }else{
             nodeMap.values().stream().filter(ClusterNode::isActive).findAny()
-                    .ifPresent(cn->cn.send(rpcMessage.encode()));
+                    .ifPresent(cn-> {
+                        logRpcMessage(rpcMessage);
+                        cn.send(rpcMessage.encode());
+                    });
         }
+    }
+
+    private void logRpcMessage(RpcMessage rpcMessage){
+        if (logger.isDebugEnabled())
+            logger.debug("send messageType:{} targetId:{} fromId:{} requestId:{} payload: {}",
+                    rpcMessage.getMessageType(),rpcMessage.getTargetId(),rpcMessage.getFromId(),rpcMessage.getRequestId(),rpcMessage.getBuffer());
     }
 
     @Override
@@ -248,27 +267,32 @@ public class NetClusterImpl implements NetCluster {
 
     @Override
     public void request(String nodeId, VoteMessage voteMessage) {
-        ClusterNode clusterNode = nodeMap.get(nodeId);
-        if (clusterNode==null)
+        if (!nodeEexist(nodeId)) {
+            logger.error("unknown node: {}",nodeId);
             return;
+        }
         RpcMessage rpcMessage = new RpcMessage(MessageType.VOTEREQUEST, nodeId, id, 0, Json.encodeToBuffer(voteMessage));
         sendOrProxy(rpcMessage);
     }
 
     @Override
     public void request(String nodeId, AppendEntriesMessage appendEntriesMessage) {
-        ClusterNode clusterNode = nodeMap.get(nodeId);
-        if (clusterNode==null)
+        if (!nodeEexist(nodeId)) {
+            logger.error("unknown node: {}",nodeId);
             return;
-        RpcMessage rpcMessage = new RpcMessage(MessageType.APPENDENTRIESREQUEST, nodeId, id, 0, Json.encodeToBuffer(appendEntriesMessage));
+        }
+
+
+        RpcMessage rpcMessage = new RpcMessage(MessageType.APPENDENTRIESREQUEST, nodeId, id, 0, appendEntriesMessage.encode());
         sendOrProxy(rpcMessage);
     }
 
     @Override
     public void request(String nodeId, int requestId, Buffer payload) {
-        ClusterNode clusterNode = nodeMap.get(nodeId);
-        if (clusterNode==null)
+        if (!nodeEexist(nodeId)) {
+            logger.error("unknown node: {}",nodeId);
             return;
+        }
         RpcMessage rpcMessage = new RpcMessage(MessageType.REQUEST, nodeId, id, requestId, payload);
         sendOrProxy(rpcMessage);
     }
@@ -282,12 +306,16 @@ public class NetClusterImpl implements NetCluster {
 
     @Override
     public void requestReadIndex(String nodeId, String id) {
-        ClusterNode clusterNode = nodeMap.get(nodeId);
-        if (clusterNode==null)
+        if (!nodeEexist(nodeId)) {
+            logger.error("unknown node: {}",nodeId);
             return;
-
+        }
         RpcMessage rpcMessage = new RpcMessage(MessageType.READINDEXREQUEST, nodeId, this.id, 0, Buffer.buffer(id, "utf-8"));
         sendOrProxy(rpcMessage);
+    }
+
+    private boolean nodeEexist(String id){
+        return nodeMap.containsKey(id);
     }
 
 

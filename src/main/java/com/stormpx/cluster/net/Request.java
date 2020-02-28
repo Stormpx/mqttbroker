@@ -22,6 +22,9 @@ public class Request {
     }
 
     public void response(boolean success, Buffer buffer){
+        if (buffer==null)
+            buffer=Buffer.buffer();
+
         RpcMessage rpcMessage = new RpcMessage(MessageType.RESPONSE, this.rpcMessage.getFromId(), this.rpcMessage.getTargetId(), this.rpcMessage.getRequestId(), Buffer.buffer().appendByte((byte) (success ? 1 : 0)).appendBuffer(buffer));
         netCluster.tryResponse(netSocket,rpcMessage);
     }

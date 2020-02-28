@@ -1,6 +1,7 @@
 package com.stormpx;
 
 import com.stormpx.cluster.ClusterClient;
+import com.stormpx.cluster.ClusterNode;
 import com.stormpx.cluster.MqttCluster;
 import com.stormpx.cluster.MqttStateService;
 import com.stormpx.cluster.message.ActionLog;
@@ -23,6 +24,7 @@ import io.vertx.core.logging.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class DispatcherVerticle extends AbstractVerticle {
@@ -52,18 +54,22 @@ public class DispatcherVerticle extends AbstractVerticle {
             startFuture.tryFail("save dir is empty");
             return;
         }
+        logger.info("save dir :{}",saveDir);
         this.messageStore=new RocksDBMessageStore(vertx,saveDir);
         this.sessionStore=new RocksDBSessionStore(vertx,saveDir);
 
 
 
         JsonObject cluster = config.getJsonObject("cluster");
+        if (cluster==null)
+            cluster=new JsonObject();
+
         String id = cluster.getString("id");
         Integer port = cluster.getInteger("port");
         JsonObject nodes = cluster.getJsonObject("nodes");
         if (id==null||port==null||port<0||port>66535||nodes==null||nodes.isEmpty()){
             this.cluster=false;
-
+            logger.info("cluster disable");
         }else {
             //cluster enable
             this.clusterDataStore=new RocksDBClusterDataStore(vertx,saveDir,id);
@@ -79,7 +85,9 @@ public class DispatcherVerticle extends AbstractVerticle {
             this.clusterClient=new ClusterClient(vertx,stateService,messageStore,clusterDataStore);
             this.mqttCluster=new MqttCluster(vertx,cluster,clusterDataStore,stateService,clusterClient);
             this.cluster=true;
+            logger.info("cluster enable id:{} port:{} nodes:{}",id,port,nodes);
         }
+
 
         vertx.eventBus().<String>localConsumer("_client_session_present")
                 .handler(message->{
@@ -89,6 +97,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                                if (ar.succeeded()){
                                    message.reply(ar.result());
                                }else{
+                                   logger.error("",ar.cause());
                                    message.fail(500,ar.cause().getMessage());
                                }
                             });
@@ -100,15 +109,16 @@ public class DispatcherVerticle extends AbstractVerticle {
                     JsonObject body = message.body();
                     String clientId = body.getString("clientId");
                     Boolean cleanSession = body.getBoolean("cleanSession",false);
-
-                    clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveSession(mqttCluster.id(),clientId, cleanSession));
+                    if (this.cluster)
+                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveSession(mqttCluster.id(),clientId, cleanSession));
                 });
 
 
-        vertx.eventBus().<JsonObject>consumer("_mqtt_session_taken_over")
+        vertx.eventBus().<JsonObject>consumer("_session_taken_over_")
                 .handler(message->{
                     JsonObject body = message.body();
-                    clusterClient.takenOverSession(body);
+                    if (this.cluster)
+                        clusterClient.takenOverSession(body);
                 });
 
 
@@ -118,13 +128,26 @@ public class DispatcherVerticle extends AbstractVerticle {
                     messageDispatcher(body);
                 });
 
+
+        vertx.eventBus().<String>localConsumer("_topic_reload_")
+                .handler(message->{
+                    String clientId = message.body();
+                    fetchSubscription(clientId)
+                        .onFailure(t->message.fail(500,t.getMessage()))
+                        .onSuccess(jsonArray->{
+                            message.reply(jsonArray);
+                            topicSubscribe(new JsonObject().put("clientId",clientId).put("subscriptions",jsonArray),true);
+                        });
+                });
+
         vertx.eventBus().<JsonObject>localConsumer("_topic_subscribe_")
                 .handler(message->{
                     JsonObject body = message.body();
-                    topicSubscribe(body).setHandler(ar->{
+                    topicSubscribe(body,false).setHandler(ar->{
                         if (ar.succeeded()){
                             message.reply(null);
                         }else{
+                            logger.error("topicSubscribe failed",ar.cause());
                             message.fail(500,ar.cause().getMessage());
                         }
                     });
@@ -138,6 +161,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                             if (ar.succeeded()){
                                 message.reply(null);
                             }else{
+                                logger.error("topicUnSubscribe failed",ar.cause());
                                 message.fail(500,ar.cause().getMessage());
                             }
                         });
@@ -180,6 +204,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                             if (ar.succeeded()){
                                 message.reply(ar.result());
                             }else{
+                                logger.error("storeOperation",ar.cause());
                                 message.fail(500,ar.cause().getMessage());
                             }
                         });
@@ -209,8 +234,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                 return release(body);
             case "receive":
                 return receive(body);
-            case "fetchSubscription":
-                return fetchSubscription(body);
             case "addPacketId":
                 return addPacketId(body);
             case "unacknowledgedPacketId":
@@ -228,8 +251,7 @@ public class DispatcherVerticle extends AbstractVerticle {
     }
 
 
-    private Future<JsonArray> fetchSubscription(JsonObject body) {
-        String clientId = body.getString("clientId");
+    private Future<JsonArray> fetchSubscription(String clientId) {
         return sessionStore.fetchSubscription(clientId);
     }
 
@@ -246,15 +268,21 @@ public class DispatcherVerticle extends AbstractVerticle {
         Future<Void> releaseLink = releaseLink(clientId);
         Future<Void> future=sessionStore.fetchSubscription(clientId)
                     .compose(array->{
+                        if (array==null)
+                            return Future.succeededFuture();
                         List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
                         return topicUnSubscribe(new JsonObject().put("clientId",clientId).put("topics",topicFilter));
                     });
 
         CompositeFuture.all(releaseLink,future)
-                .onSuccess(v->{
-                    sessionStore.del(clientId).onComplete(promise);
-                    if (cluster){
-                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delSession(mqttCluster.id(),clientId));
+                .setHandler(ar->{
+                    if (ar.succeeded()){
+                        sessionStore.del(clientId).onComplete(promise);
+                        if (cluster){
+                            clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delSession(mqttCluster.id(),clientId));
+                        }
+                    }else{
+                        promise.fail(ar.cause());
                     }
                 });
         return promise.future();
@@ -266,8 +294,13 @@ public class DispatcherVerticle extends AbstractVerticle {
                 .onFailure(t->{
                     logger.error("clear seesion : {} fail ",clientId);
                     //                   clearSession(body);
+                    promise.fail(t);
                 })
                 .onSuccess(list->{
+                    if (list==null) {
+                        promise.complete();
+                        return;
+                    }
                     List<Future> futures=list.stream().filter(json->json.containsKey("id"))
                             .map(json->json.getString("id"))
                             .map(id-> modifyRefCnt(id,-1))
@@ -307,7 +340,7 @@ public class DispatcherVerticle extends AbstractVerticle {
         String clientId = link.getString("clientId");
         String id = link.getString("id");
         return sessionStore.addLink(clientId,link)
-                .compose(v->modifyRefCnt(id,+1))
+                .onSuccess(v->modifyRefCnt(id,+1))
                 .map((Void)null)
                 .onFailure(t->logger.error("link :{} fail",t,link));
 
@@ -321,11 +354,10 @@ public class DispatcherVerticle extends AbstractVerticle {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
         return sessionStore.release(clientId, packetId)
-                .compose(id->{
+                .onSuccess(id->{
                     if (id!=null){
-                        return modifyRefCnt(id, -1);
+                        modifyRefCnt(id, -1);
                     }
-                    return Future.succeededFuture();
                 })
                 .map((Void)null)
                 .onFailure(t->logger.error("release client:{} link :{} fail",t,clientId,packetId));
@@ -340,11 +372,10 @@ public class DispatcherVerticle extends AbstractVerticle {
         String clientId = body.getString("clientId");
         Integer packetId = body.getInteger("packetId");
         return sessionStore.receive(clientId, packetId)
-                .compose(id->{
+                .onSuccess(id->{
                     if (id!=null){
-                        return modifyRefCnt(id, -1);
+                        modifyRefCnt(id, -1);
                     }
-                    return Future.succeededFuture();
                 })
                 .map((Void)null)
                 .onFailure(t->logger.error("set client :{} link receive :{} fail",t,clientId,packetId));
@@ -384,21 +415,37 @@ public class DispatcherVerticle extends AbstractVerticle {
 
     private void messageDispatcher(JsonObject message){
         String topic = message.getString("topic");
+        Boolean retain = message.getBoolean("retain");
         if (!cluster){
-           dispatcherEvent(message);
+           dispatcherEvent(message.put("unlimited",true));
         }else{
-            stateService.topicMatches(topic)
+
+            stateService.topicMatchesWithReadIndex(topic)
                     .onSuccess(c->{
+                        logger.debug("match list :{}",c);
                         int requestId = clusterClient.nextRequestId();
+                        Set<String> sendSet=new HashSet<>();
                         for (TopicFilter.SubscribeInfo subscribeInfo : c) {
-                            JsonArray shareTopics = subscribeInfo.getAllMatchSubscribe().stream().filter(TopicFilter.Entry::isShare).map(TopicFilter.Entry::getTopicFilterName).collect(J.toJsonArray());
+                            JsonArray shareTopics = subscribeInfo.getAllMatchSubscribe()
+                                    .stream()
+                                    .filter(TopicFilter.Entry::isShare)
+                                    .map(TopicFilter.Entry::getTopicFilterName)
+                                    .collect(J.toJsonArray());
+
                             JsonObject json = message.copy().put("shareTopics", shareTopics);
+
                             String nodeId = subscribeInfo.getClientId();
+                            sendSet.add(nodeId);
                             if (nodeId.equals(mqttCluster.id())){
                                 dispatcherEvent(json);
                             }else {
                                 mqttCluster.net().request(nodeId, requestId, new ProMessage("/dispatcher", json).encode());
                             }
+                        }
+                        if (retain){
+                            mqttCluster.net().nodes().stream().map(ClusterNode::id).filter(Predicate.not(sendSet::contains)).forEach(id->{
+                                mqttCluster.net().request(id, requestId, new ProMessage("/dispatcher", message).encode());
+                            });
                         }
                     });
         }
@@ -407,37 +454,40 @@ public class DispatcherVerticle extends AbstractVerticle {
 
 
     private void dispatcherEvent(JsonObject message) {
+
         String id = message.getString("id");
+        Integer qos = message.getInteger("qos");
         String topic = message.getString("topic");
         Boolean retain = message.getBoolean("retain",false);
         byte[] payloads = message.getBinary("payload");
         boolean match = topicFilter.anyMatch(topic);
-        if (match||retain){
-            if (match || payloads.length != 0){
-                messageStore.set(id, new MessageObj(message));
-                if (cluster){
-                    clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,retain,topic,payloads.length));
+        if (match||retain) {
+            if (qos > 0) {
+                if (match || payloads.length != 0) {
+                    messageStore.set(id, new MessageObj(message));
+                    if (cluster) {
+                        clusterClient.proposal(clusterClient.nextRequestId(), ActionLog.saveMessage(mqttCluster.id(), id, retain, topic, payloads.length));
+                    }
                 }
             }
-            if (retain){
-                messageStore.putRetain(topic,payloads.length==0?null:id)
-                    .setHandler(ar->{
-                        if (ar.succeeded()){
-                            String result = ar.result();
-                            if (result!=null&&!result.equals(id)){
-                                modifyRefCnt(result,-1);
-                            }
-                            modifyRefCnt(id,+1);
-                        }else{
-                            logger.error("put retain topic:{} id:{} fail",ar.cause(),topic,id);
+            if (retain) {
+                messageStore.putRetain(topic, payloads.length == 0||qos==0 ? null : id).setHandler(ar -> {
+                    if (ar.succeeded()) {
+                        String result = ar.result();
+                        if (result != null && !result.equals(id)) {
+                            modifyRefCnt(result, -1);
                         }
-                    });
+                        modifyRefCnt(id, +1);
+                    } else {
+                        logger.error("put retain topic:{} id:{} fail", ar.cause(), topic, id);
+                    }
+                });
             }
 
-        }
-
+            }
         if (match) {
-            vertx.eventBus().publish("_mqtt_message_dispatcher", UnSafeJsonObject.wrapper(message));
+            JsonObject copy = message.copy();
+            vertx.eventBus().publish("_mqtt_message_dispatcher", UnSafeJsonObject.wrapper(copy));
         }
 
     }
@@ -462,7 +512,7 @@ public class DispatcherVerticle extends AbstractVerticle {
             localSession(clientId)
                         .setHandler(promise);
         }else{
-            stateService.fetchSessionIndex(clientId)
+            stateService.fetchSessionIndexWithReadIndex(clientId)
                     .onSuccess(set->{
                         if (set.isEmpty()) {
                             promise.complete(false);
@@ -503,14 +553,19 @@ public class DispatcherVerticle extends AbstractVerticle {
                 });
     }
 
-    private Future<Void> topicSubscribe(JsonObject body){
+    private Future<Void> topicSubscribe(JsonObject body,boolean reload){
         Promise<Void> promise=Promise.promise();
         String clientId = body.getString("clientId");
         JsonArray subscriptions = body.getJsonArray("subscriptions",J.EMPTY_ARRAY);
         J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).forEach(topicFilter->{
             this.topicFilter.subscribe(topicFilter,clientId, MqttQoS.AT_MOST_ONCE,false,false,0);
         });
-        return sessionStore.addSubscription(clientId,subscriptions)
+        Future<Void> future=Future.succeededFuture();
+        if (!reload)
+            future=sessionStore.addSubscription(clientId,subscriptions);
+
+
+        return future
                 .onSuccess(v->{
                     if (cluster){
                         ActionLog log = ActionLog.subscribe(mqttCluster.id(), J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).collect(Collectors.toList()));
@@ -530,6 +585,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                 .map(Object::toString)
                 .peek(topicFilter->this.topicFilter.unSubscribe(topicFilter,clientId))
                 .collect(Collectors.toList());
+
         sessionStore.deleteSubscription(clientId,list)
                 .onSuccess(v->{
                     if (cluster){
@@ -549,7 +605,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
         if (!cluster){
             messageStore.retainMap()
-                    .onFailure(t->logger.error("fetch retainMap fail",t))
+                    .onFailure(t->logger.error("fetch retainMapWithReadIndex fail",t))
                     .onSuccess(map->{
                        map.entrySet()
                                .stream()
@@ -566,7 +622,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                     });
         }else {
             stateService
-                    .retainMap()
+                    .retainMapWithReadIndex()
                     .map(map->map.keySet()
                             .stream()
                             .filter(topic->topicFilters.stream().anyMatch(o-> TopicUtil.matches(o,topic)))
@@ -574,7 +630,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                             .filter(Objects::nonNull)
                             .collect(Collectors.toSet()))
 
-                    .compose(stateService::fetchMessageIndex)
+                    .map(stateService::fetchMessageIndex)
                     .onFailure(t->logger.error("fetch message fail",t))
                     .onSuccess(map -> {
 
@@ -648,7 +704,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                                                 if (packetId!=null)
                                                     sessionStore.release(clientId, packetId);
                                             } else{
-                                                stateService.fetchMessageIndex(Set.of(id))
+                                                stateService.fetchMessageIndexWithReadIndex(Set.of(id))
                                                         .onSuccess(map->{
                                                             Set<String> set = map.get(id);
                                                             set.remove(clientId);
@@ -714,6 +770,8 @@ public class DispatcherVerticle extends AbstractVerticle {
     }
 
     private Future<Boolean> dispatcherMsg(JsonObject body){
+        body.remove("rpc-nodeId");
+        body.remove("rpc-requestId");
         dispatcherEvent(body);
         return Future.succeededFuture(true);
     }

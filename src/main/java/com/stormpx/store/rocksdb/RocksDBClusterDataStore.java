@@ -42,7 +42,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public void setRequestId(int requestId) {
         vertx.executeBlocking(p->{
             try {
-                rocksDB.put("requestId".getBytes(),String.valueOf(requestId).getBytes());
+                rocksDB.put("requestId".getBytes(),Buffer.buffer(4).appendInt(requestId).getBytes());
             } catch (RocksDBException e) {
                 logger.error("set requestId fail",e);
             }
@@ -58,7 +58,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         vertx.executeBlocking(p->{
             try {
                 byte[] value = rocksDB.get("requestId".getBytes());
-                p.tryComplete(Integer.valueOf(new String(value)));
+                p.tryComplete(value==null?1:Buffer.buffer(value).getInt(0));
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
             }
@@ -113,7 +113,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
             while (rocksIterator.isValid()){
                 String log = new String(rocksIterator.key());
                 if (log.startsWith("log")){
-                    LogEntry logEntry = Json.decodeValue(Buffer.buffer(rocksIterator.value()), LogEntry.class);
+                    LogEntry logEntry = LogEntry.decode(0,Buffer.buffer(rocksIterator.value()));
                     logEntries.add(logEntry);
                 }
                 rocksIterator.next();
@@ -131,8 +131,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         vertx.executeBlocking(p->{
             try {
                 String key="log-"+logEntry.getIndex();
-                Buffer value = Json.encodeToBuffer(logEntry);
-                rocksDB.put(key.getBytes(),value.getBytes());
+                rocksDB.put(key.getBytes(),logEntry.encode().getBytes());
             } catch (RocksDBException e) {
                 logger.error("save log fail",e);
             }

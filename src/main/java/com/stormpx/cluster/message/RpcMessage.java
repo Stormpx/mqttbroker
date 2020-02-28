@@ -95,11 +95,12 @@ public class RpcMessage {
 
         buffer.appendUnsignedShort(fromId.length())
                 .appendBuffer(fromId);
+
         if (messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)
             buffer.appendInt(requestId);
 
-        buffer.appendInt(buffer.length())
-                .appendBuffer(buffer);
+        buffer.appendInt(this.buffer.length())
+                .appendBuffer(this.buffer);
 
         return buffer;
     }

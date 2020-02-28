@@ -2,11 +2,14 @@ package com.stormpx.cluster;
 
 
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class ClusterState {
+    private final static Logger logger= LoggerFactory.getLogger(ClusterState.class);
     private String id;
     private int currentTerm;
     private String votedFor;
@@ -37,6 +40,9 @@ public class ClusterState {
     public LogEntry addLog(String nodeId,int requestId,Buffer buffer){
         int index = ++lastIndex;
         LogEntry logEntry = new LogEntry().setIndex(index).setTerm(currentTerm).setNodeId(nodeId).setRequestId(requestId).setPayload(buffer);
+        if (logger.isDebugEnabled()) {
+            logger.error("add new log index:{} term:{} nodeId:{} requestId:{} buffer:{}", index, currentTerm, nodeId, requestId, buffer);
+        }
         logMap.put(index, logEntry);
         return logEntry;
     }

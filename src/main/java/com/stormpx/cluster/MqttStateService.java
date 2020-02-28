@@ -65,18 +65,20 @@ public class MqttStateService implements StateService {
     @Override
     public Future<Void> init(MqttCluster mqttCluster) {
         this.mqttCluster=mqttCluster;
+
         addHandler("/addLog",body->{
             String nodeId = body.getString("rpc-nodeId");
             Integer requestId = body.getInteger("rpc-requestId",0);
             body.remove("rpc-nodeId");
             body.remove("rpc-requestId");
             if (mqttCluster.getMemberType()!=MemberType.LEADER) {
-                return Future.succeededFuture();
+                return Future.<Buffer>succeededFuture();
             }else {
                 return addLog(nodeId, requestId, body.toBuffer())
                         .map(v->Buffer.buffer());
             }
         });
+
 
         return Future.succeededFuture();
     }
@@ -187,12 +189,12 @@ public class MqttStateService implements StateService {
     }
 
 
-    public Future<Map<String,String>> retainMap(){
+    public Future<Map<String,String>> retainMapWithReadIndex(){
         Promise<Map<String,String>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                    if (ar.failed()){
-                       pending.add(v-> retainMap().onComplete(promise));
+                       pending.add(v-> retainMapWithReadIndex().onComplete(promise));
                    }else{
                        promise.complete(retainMap);
                    }
@@ -201,12 +203,12 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
-    public Future<Collection<TopicFilter.SubscribeInfo>> topicMatches(String topic){
+    public Future<Collection<TopicFilter.SubscribeInfo>> topicMatchesWithReadIndex(String topic){
         Promise<Collection<TopicFilter.SubscribeInfo>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
-                        pending.add(v-> topicMatches(topic).onComplete(promise));
+                        pending.add(v-> topicMatchesWithReadIndex(topic).onComplete(promise));
                     }else {
                         Collection<TopicFilter.SubscribeInfo> matches = this.topicFilter.matches(topic);
                         promise.complete(matches);
@@ -216,12 +218,13 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
-    public Future<Set<String>> fetchSessionIndex(String clientId){
+    public Future<Set<String>> fetchSessionIndexWithReadIndex(String clientId){
         Promise<Set<String>> promise=Promise.promise();
+        logger.debug("start fetch session :{} index",clientId);
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
-                        pending.add(v->fetchSessionIndex(clientId).onComplete(promise));
+                        pending.add(v-> fetchSessionIndexWithReadIndex(clientId).onComplete(promise));
                     }else{
                         Set<String> set = sessionMap.get(clientId);
                         set=set==null?Collections.emptySet():Set.copyOf(set);
@@ -232,24 +235,28 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
-    public Future<Map<String,Set<String>>> fetchMessageIndex(Set<String> ids){
+    public Future<Map<String,Set<String>>> fetchMessageIndexWithReadIndex(Set<String> ids){
         Promise<Map<String,Set<String>>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
-                        pending.add(v->fetchMessageIndex(ids).onComplete(promise));
+                        pending.add(v-> fetchMessageIndexWithReadIndex(ids).onComplete(promise));
                     }else{
-                        HashMap<String,Set<String>> map = ids.stream().reduce(new HashMap<>(), (m, s) -> {
-                            Set<String> set = idIndexMap.get(s);
-                            if (set != null) m.put(s, Set.copyOf(set));
-                            return m;
-                        }, (q1, q2) -> q1);
-                        promise.complete(map);
+                        promise.complete(fetchMessageIndex(ids));
                     }
                 });
 
         return promise.future();
     }
+    public Map<String,Set<String>> fetchMessageIndex(Set<String> ids){
+        HashMap<String,Set<String>> map = ids.stream().reduce(new HashMap<>(), (m, s) -> {
+            Set<String> set = idIndexMap.get(s);
+            if (set != null) m.put(s, Set.copyOf(set));
+            return m;
+        }, (q1, q2) -> q1);
+        return map;
+    }
+
 
 
     private Future<Void> addLog(String nodeId, int requestId, Buffer buffer){
@@ -270,8 +277,11 @@ public class MqttStateService implements StateService {
     @Override
     public void applyLog(LogEntry logEntry) {
         Buffer payload = logEntry.getPayload();
-        if (payload==null)
+        if (payload==null||payload.length()==0)
             return;
+        if (logger.isDebugEnabled())
+            logger.debug("apply index:{} term:{} node:{} requestId:{} log:{}",
+                    logEntry.getIndex(),logEntry.getTerm(),logEntry.getNodeId(),logEntry.getRequestId(),payload);
         ActionLog actionLog = Json.decodeValue(payload, ActionLog.class);
         ActionLog.Action action = ActionLog.Action.of(actionLog.getAction());
         if (action==null)
@@ -290,7 +300,7 @@ public class MqttStateService implements StateService {
                 String nodeId = args.get(0);
                 ListIterator<String> listIterator = args.listIterator(1);
                 listIterator.forEachRemaining(topicFilter->{
-                    this.topicFilter.subscribe(nodeId,topicFilter, MqttQoS.EXACTLY_ONCE,false,false,0);
+                    this.topicFilter.subscribe(topicFilter,nodeId, MqttQoS.EXACTLY_ONCE,false,false,0);
                 });
                 break;
             case UNSUBSCRIBE:
@@ -298,7 +308,7 @@ public class MqttStateService implements StateService {
                 nodeId = args.get(0);
                 listIterator = args.listIterator(1);
                 listIterator.forEachRemaining(topicFilter->{
-                    this.topicFilter.unSubscribe(nodeId,topicFilter);
+                    this.topicFilter.unSubscribe(topicFilter,nodeId);
                 });
                 break;
             case SAVEMESSAGE:

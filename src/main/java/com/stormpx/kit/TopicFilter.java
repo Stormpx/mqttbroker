@@ -239,6 +239,10 @@ public class TopicFilter {
             return allMatchSubscribe;
         }
 
+        @Override
+        public String toString() {
+            return "SubscribeInfo{" + "clientId='" + clientId + '\'' + ", allMatchSubscribe=" + allMatchSubscribe + '}';
+        }
     }
 
     public class Entry {
@@ -304,6 +308,11 @@ public class TopicFilter {
 
         public String getTopicFilterName() {
             return topicFilterName;
+        }
+
+        @Override
+        public String toString() {
+            return "Entry{" + "topicFilterName='" + topicFilterName + '\'' + ", clientId='" + clientId + '\'' + ", noLocal=" + noLocal + ", retainAsPublished=" + retainAsPublished + ", mqttQoS=" + mqttQoS + ", subscriptionIdentifier=" + subscriptionIdentifier + ", share=" + share + '}';
         }
     }
 }

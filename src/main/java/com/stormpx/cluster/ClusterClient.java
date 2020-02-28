@@ -43,9 +43,11 @@ public class ClusterClient {
         return this;
     }
 
-    public void init(MqttCluster mqttCluster){
+    public Future<Void> init(MqttCluster mqttCluster){
         this.mqttCluster=mqttCluster;
-
+        return clusterDataStore.requestId()
+                .onSuccess(this::setRequestId)
+                .map((Void)null);
     }
 
     public void handle(Response response) {
@@ -62,17 +64,18 @@ public class ClusterClient {
             request.future()
                     .setHandler(ar -> {
                         if (!ar.succeeded() || !ar.result().isSuccess()) {
-                            proposal(requestId, log);
+                            stateService.addPendingEvent(v->proposal(requestId, log));
                         } else {
                             logger.debug("proposal log:{}", log);
                         }
                     });
 
+            logger.error("leaderId:{} id:{}",leaderId,id);
             if (leaderId.equals(id)) {
                 stateService.handle(new RpcMessage(MessageType.REQUEST,id,id,requestId,buffer))
                         .onSuccess(r->fire(requestId,r.setNodeId(id)))
                         .onFailure(t->{
-                            logger.error("try add log fail",t);
+                            logger.error("try add log failed",t);
                             fire(requestId,new Response().setNodeId(id).setSuccess(false));
                         })
                         ;
@@ -165,8 +168,11 @@ public class ClusterClient {
             this.nodeIds = new HashSet<>(nodeIds);
             this.requestId = requestId;
             this.promise=Promise.promise();
-            this.timeoutStream=vertx.timerStream(300);
-            this.timeoutStream.handler(v->promise.tryFail("timeout"));
+            this.timeoutStream=vertx.timerStream(5500);
+            this.timeoutStream.handler(v->{
+                logger.debug("requestId:{} timeout",requestId);
+                promise.tryFail("timeout");
+            });
             this.promise.future().onComplete(ar->{
                 responseFutureMap.remove(requestId);
                 timeoutStream.cancel();

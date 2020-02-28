@@ -39,22 +39,14 @@ import static com.stormpx.Constants.*;
 @ExtendWith(VertxExtension.class)
 public class Mqtt3Test {
 
-    private static MqttClient client1 = null;
-
-    private static MqttClient client2 = null;
 
     @BeforeAll
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
-        DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
-        vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
 
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,"D:\\foo/")).setHandler(context.completing());
 
-            context.completeNow();
-
-        }));
 
     }
 
@@ -181,28 +173,28 @@ public class Mqtt3Test {
 
         try {
 
-            client2.publishWith().topic("/test/qos1").qos(MqttQos.AT_LEAST_ONCE).retain(true).payload(new byte[]{1}).send();
+            client2.publishWith().topic("/retain/qos1").qos(MqttQos.AT_LEAST_ONCE).retain(true).payload(new byte[]{1}).send();
 
             client1.subscribeWith()
                     .addSubscription()
-                    .topicFilter("/test/qos1").qos(MqttQos.AT_LEAST_ONCE)
+                    .topicFilter("/retain/qos1").qos(MqttQos.AT_LEAST_ONCE)
                     .applySubscription()
                     .send();
             Mqtt3Publish publish = publishes.receive();
-            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos1");
+            Assertions.assertEquals(publish.getTopic().toString(),"/retain/qos1");
             Assertions.assertEquals(publish.getQos(),MqttQos.AT_LEAST_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
 
 
-            client2.publishWith().topic("/test/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
+            client2.publishWith().topic("/retain/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
             client1.subscribeWith()
                     .addSubscription()
-                    .topicFilter("/test/qos2").qos(MqttQos.EXACTLY_ONCE)
+                    .topicFilter("/retain/qos2").qos(MqttQos.EXACTLY_ONCE)
                     .applySubscription()
                     .send();
 
             publish = publishes.receive();
-            Assertions.assertEquals(publish.getTopic().toString(),"/test/qos2");
+            Assertions.assertEquals(publish.getTopic().toString(),"/retain/qos2");
             Assertions.assertEquals(publish.getQos(),MqttQos.EXACTLY_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
         } catch (InterruptedException e) {

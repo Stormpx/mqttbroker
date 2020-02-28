@@ -48,7 +48,6 @@ public class MqttBroker {
         options.setStores(configStoreOptions)
                 .setScanPeriod(60*1000);
 
-        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
 
         ConfigRetriever retriever = ConfigRetriever.create(vertx,options);
         Promise<Void> promise=Promise.promise();
@@ -57,10 +56,10 @@ public class MqttBroker {
                 if (ar.succeeded()){
                     retriever.listen(configChange->{
                         logger.info("detected config change");
-                        vertx.eventBus().publish(":config_change::",configChange, new DeliveryOptions().setLocalOnly(true));
+                        vertx.eventBus().publish(":config_change::",configChange.toJson(), new DeliveryOptions().setLocalOnly(true));
                     });
 
-                    start(vertx,ar.result());
+                    start(vertx,ar.result()).setHandler(promise);
                 }else{
                     promise.fail(ar.cause());
                 }
@@ -75,6 +74,8 @@ public class MqttBroker {
 
     public static Future<Void> start(Vertx vertx,JsonObject config){
         setLogLevel(config);
+
+        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
 
         return deployDispatcherVerticle(vertx, config)
                 .compose(v->deployBrokerVerticle(vertx, config))

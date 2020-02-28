@@ -17,7 +17,7 @@ public class ProMessage {
     public static ProMessage decode(Buffer buffer){
         int pos=0;
         int len = buffer.getUnsignedShort(pos);
-        pos+=3;
+        pos+=2;
         Buffer res = buffer.getBuffer(pos, pos + len);
         pos+=len;
         JsonObject json = buffer.slice(pos, buffer.length()).toJsonObject();

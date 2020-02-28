@@ -122,8 +122,8 @@ public class Mqtt3Context extends AbstractMqttContext {
 
         MqttConnAckPacket packet=new MqttConnAckPacket(FixedHeader.CONNACK,
                 mqttConnectReturnCode.byteValue(),null,false);
-
-       mqttSocket.writePacket(packet);
+        connectAck=true;
+       mqttSocket.writePacket(packet,ar->close());
         if (logger.isDebugEnabled())
             logger.debug("reject client :{} by code:{}",mqttSession.clientIdentifier(),code);
         return this;

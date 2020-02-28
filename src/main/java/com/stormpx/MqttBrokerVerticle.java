@@ -25,6 +25,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.PemKeyCertOptions;
+import io.vertx.core.net.impl.VertxHandler;
 import io.vertx.core.shareddata.LocalMap;
 
 import java.time.Instant;
@@ -189,6 +190,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
         mqttServer.exceptionHandler(t->logger.error("",t))
                 .handler(mqttContext->{
+
                     logger.debug("client:{} try connect",mqttContext.session().clientIdentifier());
                     mqttContext.exceptionHandler(t->{
 
@@ -403,7 +405,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     private Future<Boolean> handleSessionPresent(MqttContext mqttContext, boolean sessionPresent){
         String clientId = mqttContext.session().clientIdentifier();
-        takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
+        dispatcher.takenOverSession(mqttContext.id(),clientId,!sessionPresent);
+//        takenOverConnection(mqttContext.id(),clientId,!sessionPresent);
         if (sessionPresent){
             dataStorage.dropWillMessage(clientId);
             return addUnacknowledgedPacketId(mqttContext)
@@ -423,6 +426,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
 
     private void takenOverConnection(String newId,String clientId,boolean sessionEnd){
+
         MqttContext connection = mqttServer.holder().get(clientId);
         if (connection!=null){
             mqttServer.holder().remove(clientId);
@@ -466,7 +470,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     }
     /**
-     * Subscribe voteHandler
+     * Subscribe handler
      * @param mqttContext
      * @param message
      */
@@ -555,7 +559,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
 
     /**
-     * UnSubscribe voteHandler
+     * UnSubscribe handler
      * @param mqttContext
      * @param message
      */
@@ -573,7 +577,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
 
     /**
-     * publish voteHandler
+     * publish handler
      * @param mqttContext
      * @param message
      */
@@ -581,14 +585,14 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         // auth
         boolean isQos0 = message.getQos() == MqttQoS.AT_MOST_ONCE;
         String clientId = mqttContext.session().clientIdentifier();
-
+        JsonObject json = message.toJson();
         authenticator.authorizePub(clientId, message.getTopic()).setHandler(aar -> {
             if (aar.succeeded()) {
                 AuthResult<Boolean> authResult = aar.result();
                 List<StringPair> userProperty = authResult.getPairList();
                 if (authResult.getObject()) {
-                    logger.debug("clientId:{} publish message topic:{} qos:{} retain:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain());
-                    JsonObject result = message.toJson().put("clientId", clientId);
+                    logger.debug("clientId:{} publish message topic:{} qos:{} retain:{} payloadLength:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain(),message.getPayload().length());
+                    JsonObject result = json.put("clientId", clientId);
                     if (!isQos0) {
                         String id = UUID.randomUUID().toString().replaceAll("-", "");
                         result.put("id", id);
@@ -607,8 +611,10 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                         dataStorage.addPacketId(clientId, message.getPacketId())
                             .onFailure(mqttContext::handleException)
                             .onSuccess(v->{
+                                mqttContext.session().addPacketId(message.getPacketId());
                                 mqttContext.publishReceived(message.getPacketId(), ReasonCode.SUCCESS, userProperty, null);
                                 //dispatcher
+
                                 dispatcherEvent(result);
                             });
                     }else {
@@ -637,6 +643,9 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     }
 
     private void onClose(MqttContext mqttContext){
+        if (!mqttContext.isAccept())
+            return;
+
         MqttSession session = mqttContext.session();
         String clientId = session.clientIdentifier();
         session.setExpiryTime();
@@ -708,9 +717,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         String topic = message.getString("topic");
         MqttQoS qos = MqttQoS.valueOf(message.getInteger("qos"));
         boolean retain = message.getBoolean("retain");
-        JsonArray shareTopics= (JsonArray) message.remove("shareTopics");
-        if (shareTopics==null)
-            shareTopics=J.EMPTY_ARRAY;
+        Boolean unlimited = message.getBoolean("unlimited", false);
+        JsonArray shareTopics= message.getJsonArray("shareTopics",J.EMPTY_ARRAY);
 
         Set<String> shareTopicSet = shareTopics.stream().map(Object::toString).collect(Collectors.toSet());
 
@@ -731,7 +739,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             for (TopicFilter.Entry e : subscribeInfo.getAllMatchSubscribe()) {
                 //if isShare subscribe publish
                 if (e.isShare()) {
-                    if (!shareTopicSet.contains(e.getTopicFilterName()))
+                    if (!unlimited&&!shareTopicSet.contains(e.getTopicFilterName()))
                         continue;
                     //share subscribe get lock
                     vertx.sharedData().getLockWithTimeout(e.getTopicFilterName()+id,40, ar->{
@@ -765,10 +773,11 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 if (maxQosEntry.isNoLocal() && clientId.equals(mqttContext.session().clientIdentifier()))
                     continue;
 
-                sendToClient(mqttContext,message.copy()
-                        .put("qos",Math.min(qos.value(),maxQosEntry.getMqttQoS().value()))
+                JsonObject entries = message.copy()
+                        .put("qos", Math.min(qos.value(), maxQosEntry.getMqttQoS().value()))
                         .put("retain", maxQosEntry.isRetainAsPublished() && retain)
-                        .put("subscriptionId",subscriptionIds));
+                        .put("subscriptionId", subscriptionIds);
+                sendToClient(mqttContext, entries);
 
             }
 
@@ -847,7 +856,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     private Future<Void> subscribeByClientId(MqttContext mqttContext){
         String clientId = mqttContext.session().clientIdentifier();
-        return dataStorage.fetchSubscription(clientId)
+        return dispatcher.reSubscribe(clientId)
                 .setHandler(ar->{
                    if (ar.succeeded()){
                        JsonArray array = ar.result();

@@ -1,0 +1,35 @@
+{
+  "tcp": {
+    "host": "0.0.0.0",
+    "port": 11885,
+    "ssl": false,
+    "key_cert": [
+      {
+        "key_file": "/privkey.pem",
+        "cert_file": "/cert.pem"
+      }
+    ]
+  },
+  "ws": {
+    "enable": true,
+    "host": "0.0.0.0",
+    "port": 18185,
+    "path": "/mqtt",
+    "ssl": false,
+    "key_cert": [
+      {
+        "key_file": "/privkey.pem",
+        "cert_file": "/cert.pem"
+      }
+    ]
+  },
+  "cluster": {
+    "id": "machine3",
+    "port": 56423,
+    "nodes": {
+      "machine1": "127.0.0.1:56421",
+      "machine2": "127.0.0.1:56422"
+    }
+  },
+  "save_dir": "D:\\machine3/"
+}

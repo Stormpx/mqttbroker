@@ -3,6 +3,7 @@ package com.stormpx.cluster.message;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class ActionLog  {
     private String action;
@@ -80,6 +81,20 @@ public class ActionLog  {
     @Override
     public String toString() {
         return "ActionLog{" + "action='" + action + '\'' + ", args=" + args + '}';
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ActionLog actionLog = (ActionLog) o;
+        return Objects.equals(action, actionLog.action) && Objects.equals(args, actionLog.args);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(action, args);
     }
 
     public enum Action{

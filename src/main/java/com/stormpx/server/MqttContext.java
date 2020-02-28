@@ -32,6 +32,8 @@ public interface MqttContext {
 
     int topicAliasMaximum();
 
+    boolean isAccept();
+
     boolean isTakenOver();
 
     List<StringPair> userProperty();

@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.stormpx.Constants.SAVE_DIR;
 import static com.stormpx.Constants.TCP;
 
 @ExtendWith(VertxExtension.class)
@@ -45,14 +46,16 @@ public class Mqtt5Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
-        DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
+
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",6).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,"D:\\foo/")).setHandler(context.completing());
+
+        /*DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
 
 
             context.completeNow();
 
-        }));
+        }));*/
 
     }
 
@@ -93,7 +96,7 @@ public class Mqtt5Test {
     }
 
     @Test
-    public void publishTest(){
+    public void publishTest() throws InterruptedException {
         Mqtt5BlockingClient client1=MqttClient.builder()
                 .identifier(UUID.randomUUID().toString())
                 .serverHost("localhost")
@@ -242,7 +245,7 @@ public class Mqtt5Test {
         try (Mqtt5BlockingClient.Mqtt5Publishes publishes1 = client1.publishes(MqttGlobalPublishFilter.ALL);
              Mqtt5BlockingClient.Mqtt5Publishes publishes2 = client2.publishes(MqttGlobalPublishFilter.ALL)) {
 
-            client2.publishWith().topic("/test").qos(MqttQos.EXACTLY_ONCE).send();
+            client2.publishWith().topic("/test").qos(MqttQos.AT_MOST_ONCE).send();
             AtomicInteger a= new AtomicInteger();
             publishes1.receive(200,TimeUnit.MILLISECONDS)
                 .ifPresent(p->{

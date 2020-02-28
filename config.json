@@ -1,7 +1,7 @@
 {
   "sni": false,
   "tcp_no_delay": false,
-  "verticle_instance": 6,
+  "verticle_instance": 5,
   "mqtt": {
     "max_message_expiry_interval": 600,
     "max_session_expiry_interval": 600,
@@ -15,35 +15,13 @@
     "subscription_identifier_available": true,
     "shared_subscription_available": true
   },
-  "tcp": {
-    "host": "0.0.0.0",
-    "port": 11883,
-    "ssl": false,
-    "key_cert": [
-      {
-        "key_file": "/privkey.pem",
-        "cert_file": "/cert.pem"
-      }
-    ]
-  },
-  "ws": {
-    "enable": true,
-    "host": "0.0.0.0",
-    "port": 18183,
-    "path": "/mqtt",
-    "ssl": false,
-    "key_cert": [
-      {
-        "key_file": "/privkey.pem",
-        "cert_file": "/cert.pem"
-      }
-    ]
-  },
 
-  "log_level": "info",
+
+
+  "log_level": "debug",
   "log_dir": "/log",
 
   "save_enable": true,
   "save_interval": 120,
-  "save_dir": "/data"
+  "save_dir": "D:\\foo/"
 }

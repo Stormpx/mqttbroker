@@ -17,7 +17,7 @@ public class AppendEntriesRequest {
         this.netSocket = netSocket;
         this.clusterServer = clusterServer;
         this.rpcMessage=rpcMessage;
-        this.appendEntriesMessage = Json.decodeValue(rpcMessage.getBuffer(),AppendEntriesMessage.class);
+        this.appendEntriesMessage = AppendEntriesMessage.decode(rpcMessage.getBuffer());
     }
 
     public AppendEntriesMessage getAppendEntriesMessage() {
