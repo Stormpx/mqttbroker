@@ -662,7 +662,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             return;
         }
 
-//        mqttServer.holder().remove(mqttContext.session().clientIdentifier());
 
         //save expiry Timestamp
         if (mqttContext.sessionExpiryInterval() != 0)
@@ -670,6 +669,10 @@ public class MqttBrokerVerticle extends AbstractVerticle {
         else {
             topicFilter.clearSubscribe(clientId);
             dataStorage.clearSession(clientId);
+            MqttContext context = mqttServer.holder().get(clientId);
+            if (context!=null&&context.id().equals(mqttContext.id()))
+                mqttServer.holder().remove(clientId);
+
         }
         if (mqttContext.isDisConnect()) return;
 

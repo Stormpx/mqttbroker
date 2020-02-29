@@ -18,7 +18,7 @@ public class ClusterState {
     private int commitIndex;
     private int lastApplied;
 
-
+    private LogList logList;
     private Map<Integer, LogEntry> logMap;
 
     public ClusterState() {
@@ -78,6 +78,7 @@ public class ClusterState {
         return lastApplied;
     }
     public int getLastIndex() {
+//        return logList.getLastLogIndex();
         return lastIndex;
     }
 
@@ -116,4 +117,8 @@ public class ClusterState {
     }
 
 
+    public ClusterState setLogList(LogList logList) {
+        this.logList = logList;
+        return this;
+    }
 }

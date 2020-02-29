@@ -31,10 +31,9 @@ public class MqttStateService implements StateService {
     private Map<String, Function<JsonObject,Future<?>>> handlerMap;
 
 
-    private TopicFilter topicFilter;
-
     private Map<String,Map<Integer, Promise<Void>>> mapMap;
 
+    private TopicFilter topicFilter;
     //key nodeId value requestId
     private Map<String,Set<Integer>> idempotentMap;
     //key topic value id

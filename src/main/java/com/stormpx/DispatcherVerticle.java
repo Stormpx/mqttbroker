@@ -528,11 +528,11 @@ public class DispatcherVerticle extends AbstractVerticle {
                                             promise.complete(false);
                                         } else {
                                             Long expiryTimestamp = sessionObj.getExpiryTimestamp();
-                                            boolean isExpiry = Instant.now().getEpochSecond() < expiryTimestamp;
+                                            boolean isExpiry = Instant.now().getEpochSecond() >= expiryTimestamp;
                                             if (!isExpiry) {
                                                 sessionStore.save(sessionObj);
                                             }
-                                            promise.complete(isExpiry);
+                                            promise.complete(!isExpiry);
                                         }
                                     });
                         }

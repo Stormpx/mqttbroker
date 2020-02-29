@@ -495,7 +495,7 @@ public class MqttCluster {
             }else {
                 int nextIndex = nodeState.getNextIndex();
                 List<LogEntry> logs = IntStream
-                        .range(nextIndex, clusterState.getLastIndex() + 1)
+                        .range(nextIndex, (clusterState.getLastIndex() + 1)-nextIndex>1000?nextIndex+1000:(clusterState.getLastIndex() + 1))
                         .boxed()
                         .map(clusterState::getLog)
                         .collect(Collectors.toList());

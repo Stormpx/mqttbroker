@@ -17,6 +17,7 @@ import org.rocksdb.RocksIterator;
 import java.io.File;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 
 public class RocksDBClusterDataStore implements ClusterDataStore {
@@ -59,6 +60,34 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
             try {
                 byte[] value = rocksDB.get("requestId".getBytes());
                 p.tryComplete(value==null?1:Buffer.buffer(value).getInt(0));
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+        },promise);
+
+        return promise.future();
+    }
+
+    @Override
+    public void saveIndex(int firstIndex, int lastIndex) {
+        vertx.executeBlocking(p->{
+            try {
+                rocksDB.put("index".getBytes(),new JsonObject().put("firstIndex",firstIndex).put("lastIndex",lastIndex).toBuffer().getBytes());
+            } catch (RocksDBException e) {
+                logger.error("set requestId fail",e);
+            }
+        },ar->{
+
+        });
+    }
+
+    @Override
+    public Future<JsonObject> getIndex() {
+        Promise<JsonObject> promise=Promise.promise();
+        vertx.executeBlocking(p->{
+            try {
+                byte[] value = rocksDB.get("index".getBytes());
+                p.tryComplete(value==null?null:Buffer.buffer(value).toJsonObject());
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
             }
@@ -115,6 +144,34 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
                 if (log.startsWith("log")){
                     LogEntry logEntry = LogEntry.decode(0,Buffer.buffer(rocksIterator.value()));
                     logEntries.add(logEntry);
+                }
+                rocksIterator.next();
+            }
+            rocksIterator.close();
+            p.complete(logEntries);
+        },promise);
+
+        return promise.future();
+    }
+
+    @Override
+    public Future<List<LogEntry>> getLogs(int start, int end){
+
+        Promise<List<LogEntry>> promise=Promise.promise();
+        vertx.executeBlocking(p->{
+            RocksIterator rocksIterator = rocksDB.newIterator();
+            rocksIterator.seek(("log-"+start).getBytes());
+            List<LogEntry> logEntries=new LinkedList<>();
+            while (rocksIterator.isValid()){
+                String log = new String(rocksIterator.key());
+                if (log.startsWith("log")){
+                    Integer logIndex = Integer.valueOf(log.substring(3));
+                    if (logIndex<end) {
+                        LogEntry logEntry = LogEntry.decode(0, Buffer.buffer(rocksIterator.value()));
+                        logEntries.add(logEntry);
+                    }else{
+                        break;
+                    }
                 }
                 rocksIterator.next();
             }

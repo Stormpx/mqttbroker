@@ -60,7 +60,7 @@ public class RocksDBSessionStore implements SessionStore {
                 }
                 byte[] subscribeValue = rocksDB.get(subscribeKey.getBytes());
                 if (subscribeValue!=null){
-                    sessionObj.addTopicSubscription(Buffer.buffer(subscribeKey).toJsonArray());
+                    sessionObj.addTopicSubscription(Buffer.buffer(subscribeValue).toJsonArray());
                 }
                 RocksIterator linkRocksIterator = rocksDB.newIterator();
                 for (linkRocksIterator.seek(linkPrefix.getBytes());linkRocksIterator.isValid()&&new String(linkRocksIterator.key()).startsWith(linkPrefix);linkRocksIterator.next()){
