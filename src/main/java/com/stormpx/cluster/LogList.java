@@ -33,7 +33,6 @@ public class LogList {
             Collection<LogEntry> entries = logEntryTreeMap.subMap(start , end).values();
             return Future.succeededFuture(new ArrayList<>(entries));
         }else {
-            int finalStart = start;
             return clusterDataStore.getLogs(start, end)
                     .map(list -> {
                         if (list.isEmpty()) return list;
@@ -56,9 +55,8 @@ public class LogList {
                 if (list.isEmpty())
                     return null;
                 LogEntry logEntry = list.get(0);
-                if (lastLogIndex-index==1){
+                if (listFirstIndex()-index==1){
                     logEntryTreeMap.put(logEntry.getIndex(),logEntry);
-                    lastLogIndex=index;
                 }
                 return logEntry;
             });
@@ -84,6 +82,7 @@ public class LogList {
         LogEntry logEntry = new LogEntry().setIndex(lastLogIndex).setTerm(currentTerm).setNodeId(nodeId).setRequestId(requestId).setPayload(buffer);
         logEntryTreeMap.put(logEntry.getIndex(),logEntry);
 
+        clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
         clusterDataStore.saveLog(logEntry);
         return logEntry;
     }
@@ -95,9 +94,11 @@ public class LogList {
             logEntryTreeMap.put(logEntry.getIndex(),logEntry);
         }
         //db
-        if (logEntry.getIndex()>lastLogIndex)
-            lastLogIndex=logEntry.getIndex();
-
+        if (logEntry.getIndex()>lastLogIndex) {
+            lastLogIndex = logEntry.getIndex();
+            if (save)
+                clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
+        }
         if (save)
             clusterDataStore.saveLog(logEntry);
     }
@@ -113,6 +114,7 @@ public class LogList {
 
         clusterDataStore.delLog(0,index+1);
         firstLogIndex=index+1;
+        clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
     }
 
     /**
@@ -127,6 +129,7 @@ public class LogList {
 
         clusterDataStore.delLog(start,lastLogIndex+1);
         lastLogIndex=start-1;
+        clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
     }
 
 

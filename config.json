@@ -15,10 +15,32 @@
     "subscription_identifier_available": true,
     "shared_subscription_available": true
   },
+  "tcp": {
+    "host": "0.0.0.0",
+    "port": 11883,
+    "ssl": false,
+    "key_cert": [
+      {
+        "key_file": "/privkey.pem",
+        "cert_file": "/cert.pem"
+      }
+    ]
+  },
+  "ws": {
+    "enable": true,
+    "host": "0.0.0.0",
+    "port": 18183,
+    "path": "/mqtt",
+    "ssl": false,
+    "key_cert": [
+      {
+        "key_file": "/privkey.pem",
+        "cert_file": "/cert.pem"
+      }
+    ]
+  },
 
-
-
-  "log_level": "info",
+  "log_level": "debug",
   "log_dir": "/log",
 
   "save_enable": true,

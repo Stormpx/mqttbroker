@@ -101,8 +101,8 @@ public class MqttCluster {
                     int lastLogIndex=0;
                     int firstLogIndex=0;
                     if (json!=null){
-                        firstLogIndex=json.getInteger("firstLogIndex");
-                        lastLogIndex=json.getInteger("lastLogIndex");
+                        firstLogIndex=json.getInteger("firstIndex");
+                        lastLogIndex=json.getInteger("lastIndex");
                     }
                     return clusterDataStore.getLogs(firstLogIndex,lastLogIndex+1);
                 })
@@ -115,7 +115,6 @@ public class MqttCluster {
 
                         List<LogEntry> cacheList=new ArrayList<>();
                         for (LogEntry logEntry : logEntryList) {
-                            //                                    clusterState.setLog(log);
                             if (logEntry.getIndex()<firstLogIndex){
                                 firstLogIndex=logEntry.getIndex();
                             }
@@ -321,7 +320,7 @@ public class MqttCluster {
         VoteMessage voteMessage = voteRequest.getVoteMessage();
         // if connect test return true
         if (voteMessage.isPreVote()){
-            voteRequest.response(new VoteResponse().setNodeId(clusterState.getId()).setVoteGranted(true).setTerm(clusterState.getCurrentTerm()));
+            voteRequest.response(new VoteResponse().setNodeId(clusterState.getId()).setPreVote(true).setVoteGranted(true).setTerm(clusterState.getCurrentTerm()));
             return;
         }
         logger.debug("vote request from node: {} term:{}",voteMessage.getCandidateId(),voteMessage.getTerm());
@@ -361,6 +360,8 @@ public class MqttCluster {
         if (voteResponse.isVoteGranted()){
             logger.debug("get vote from node:{}",voteResponse.getNodeId());
             if (memberType==MemberType.PRE_CANDIDATES||memberType==MemberType.CANDIDATES) {
+                if (memberType==MemberType.CANDIDATES&&voteResponse.isPreVote())
+                    return;
                 counter.add(voteResponse.getNodeId());
                 if (counter.isMajority()) {
                     switch (memberType){
@@ -491,7 +492,7 @@ public class MqttCluster {
         if (this.timeoutStream!=null)
             this.timeoutStream.cancel();
 
-        this.timeoutStream=vertx.timerStream(150).handler(id->{
+        this.timeoutStream=vertx.timerStream(80).handler(id->{
            if (memberType==MemberType.LEADER){
                logger.debug("leader appendEntries term:{}",clusterState.getCurrentTerm());
                sendAppendEntries();
@@ -598,8 +599,9 @@ public class MqttCluster {
                 if (logList.getFirstLogIndex()>=nextIndex){
                     //sanpshot
                 }
-                int endIndex=(logList.getLastLogIndex() + 1)-nextIndex>1000?nextIndex+1000:(logList.getLastLogIndex() + 1);
+                int endIndex=(logList.getLastLogIndex() + 1)-nextIndex>100?nextIndex+100:(logList.getLastLogIndex() + 1);
 
+                logger.debug("start:{} end:{}",nextIndex-1,endIndex);
                 logList.getLog(nextIndex-1,endIndex)
                         .onFailure(t->logger.error("send append message to node:{} failed",t,clusterNode.id()))
                         .onSuccess(logs->{

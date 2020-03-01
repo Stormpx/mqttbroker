@@ -35,10 +35,6 @@ public class DispatcherVerticle extends AbstractVerticle {
     private String clusterId;
 
     private Cluster cluster;
-    /*private ClusterDataStore clusterDataStore;
-    private MqttCluster mqttCluster;
-    private MqttStateService stateService;
-    private ClusterClient clusterClient;*/
 
     private TopicFilter topicFilter;
 
@@ -67,33 +63,6 @@ public class DispatcherVerticle extends AbstractVerticle {
             this.clusterId=id;
             this.cluster=new Cluster(vertx);
         }
-        /*JsonObject cluster = config.getJsonObject("cluster");
-        if (cluster==null)
-            cluster=new JsonObject();
-
-        String id = cluster.getString("id");
-        Integer port = cluster.getInteger("port");
-        JsonObject nodes = cluster.getJsonObject("nodes");
-        if (id==null||port==null||port<0||port>66535||nodes==null||nodes.isEmpty()){
-            this.isCluster=false;
-            logger.info("cluster disable");
-        }else {
-            //cluster enable
-            this.clusterDataStore=new RocksDBClusterDataStore(vertx,saveDir,id);
-            this.stateService=new MqttStateService(vertx,sessionStore);
-
-//            this.stateService.addHandler("/store/sync",this::);
-//            this.stateService.addHandler("/session/sync",);
-            this.stateService.addHandler("/session",this::requestSession);
-            this.stateService.addHandler("/message",this::requestMessage);
-            this.stateService.addHandler("/takenover",this::takenOverSession);
-            this.stateService.addHandler("/dispatcher",this::dispatcherMsg);
-
-            this.clusterClient=new ClusterClient(vertx,stateService,clusterDataStore);
-            this.mqttCluster=new MqttCluster(vertx,cluster,clusterDataStore,stateService,clusterClient);
-            this.isCluster=true;
-            logger.info("cluster enable id:{} port:{} nodes:{}",id,port,nodes);
-        }*/
 
 
         vertx.eventBus().<String>localConsumer("_client_session_present")
@@ -118,7 +87,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                     Boolean cleanSession = body.getBoolean("cleanSession",false);
                     if (this.isCluster)
                         cluster.proposal(ActionLog.saveSession(clusterId,clientId, cleanSession));
-//                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveSession(mqttCluster.id(),clientId, cleanSession));
                 });
 
 
@@ -128,9 +96,6 @@ public class DispatcherVerticle extends AbstractVerticle {
 
                     vertx.eventBus().publish("_mqtt_session_taken_over", body);
 
-                    /*
-                    if (this.cluster)
-                        clusterClient.takenOverSession(body);*/
                 });
 
 
@@ -255,9 +220,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                     dispatcherMsg(body);
                 });
 
-        /*if (this.mqttCluster!=null)
-            this.mqttCluster.start().setHandler(startFuture);
-        else*/
             startFuture.complete();
 
 
@@ -323,7 +285,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                         sessionStore.del(clientId).onComplete(promise);
                         if (isCluster){
                             cluster.proposal(ActionLog.delSession(clusterId,clientId));
-//                            clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delSession(mqttCluster.id(),clientId));
                         }
                     }else{
                         promise.fail(ar.cause());
@@ -337,7 +298,6 @@ public class DispatcherVerticle extends AbstractVerticle {
         sessionStore.links(clientId)
                 .onFailure(t->{
                     logger.error("clear seesion : {} fail ",clientId);
-                    //                   clearSession(body);
                     promise.fail(t);
                 })
                 .onSuccess(list->{
@@ -493,35 +453,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                             });
                         }
                     });
-            /*stateService.topicMatchesWithReadIndex(topic)
-                    .onSuccess(c->{
-                        if (logger.isDebugEnabled())
-                            logger.debug("match list :{}",c);
-                        int requestId = clusterClient.nextRequestId();
-                        Set<String> sendSet=new HashSet<>();
-                        for (TopicFilter.SubscribeInfo subscribeInfo : c) {
-                            JsonArray shareTopics = subscribeInfo.getAllMatchSubscribe()
-                                    .stream()
-                                    .filter(TopicFilter.Entry::isShare)
-                                    .map(TopicFilter.Entry::getTopicFilterName)
-                                    .collect(J.toJsonArray());
-
-                            JsonObject json = message.copy().put("shareTopics", shareTopics);
-
-                            String nodeId = subscribeInfo.getClientId();
-                            sendSet.add(nodeId);
-                            if (nodeId.equals(mqttCluster.id())){
-                                dispatcherEvent(json);
-                            }else {
-                                mqttCluster.net().request(nodeId, requestId, new ProMessage("/dispatcher", json).encode());
-                            }
-                        }
-                        if (retain){
-                            mqttCluster.net().nodes().stream().map(ClusterNode::id).filter(Predicate.not(sendSet::contains)).forEach(id->{
-                                mqttCluster.net().request(id, requestId, new ProMessage("/dispatcher", message).encode());
-                            });
-                        }
-                    });*/
         }
     }
 
@@ -541,7 +472,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                     messageStore.set(id, new MessageObj(message));
                     if (isCluster) {
                         cluster.proposal(ActionLog.saveMessage(clusterId, id, retain, topic, payloads.length));
-//                        clusterClient.proposal(clusterClient.nextRequestId(), ActionLog.saveMessage(mqttCluster.id(), id, retain, topic, payloads.length));
                     }
                 }
             }
@@ -575,7 +505,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                        messageStore.del(id);
                        if (isCluster){
                            cluster.proposal(ActionLog.delMessage(clusterId,id));
-//                           clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.delMessage(mqttCluster.id(),id));
                        }
                    }
                 });
@@ -607,31 +536,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                             }
                         }
                     });
-           /* stateService.fetchSessionIndexWithReadIndex(clientId)
-                    .onSuccess(set->{
-                        if (set.isEmpty()) {
-                            promise.complete(false);
-                            return;
-                        }
-                        if (set.contains(mqttCluster.id())){
-                            localSession(clientId).setHandler(promise);
-                        }else {
-                            clusterClient.requestSession(clusterClient.nextRequestId(), new HashSet<>(set), clientId)
-                                    .onFailure(promise::fail)
-                                    .onSuccess(sessionObj->{
-                                        if (sessionObj == null || sessionObj.getExpiryTimestamp() == null) {
-                                            promise.complete(false);
-                                        } else {
-                                            Long expiryTimestamp = sessionObj.getExpiryTimestamp();
-                                            boolean isExpiry = Instant.now().getEpochSecond() >= expiryTimestamp;
-                                            if (!isExpiry) {
-                                                sessionStore.save(sessionObj);
-                                            }
-                                            promise.complete(!isExpiry);
-                                        }
-                                    });
-                        }
-                    });*/
             }
         return promise.future();
     }
@@ -665,8 +569,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                     if (isCluster){
                         ActionLog log = ActionLog.subscribe(clusterId, J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).collect(Collectors.toList()));
                         cluster.proposal(log);
-                        /*ActionLog log = ActionLog.subscribe(mqttCluster.id(), J.toJsonStream(subscriptions).map(json->json.getString("topicFilter")).collect(Collectors.toList()));
-                        clusterClient.proposal(clusterClient.nextRequestId(),log);*/
                     }
                 })
                 .onComplete(promise);
@@ -690,8 +592,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                         if (!unSubscribeList.isEmpty()) {
                             ActionLog log = ActionLog.unSubscribe(clusterId, unSubscribeList);
                             cluster.proposal(log);
-                           /* ActionLog log = ActionLog.unSubscribe(mqttCluster.id(), unSubscribeList);
-                            clusterClient.proposal(clusterClient.nextRequestId(), log);*/
                         }
                     }
                 })
@@ -763,59 +663,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                         });
                     });
 
-            /*stateService
-                    .retainMapWithReadIndex()
-                    .map(map->map.keySet()
-                            .stream()
-                            .filter(topic->topicFilters.stream().anyMatch(o-> TopicUtil.matches(o,topic)))
-                            .map(map::get)
-                            .filter(Objects::nonNull)
-                            .collect(Collectors.toSet()))
-
-                    .map(stateService::fetchMessageIndex)
-                    .onFailure(t->logger.error("fetch message fail",t))
-                    .onSuccess(map -> {
-
-                        if (map.isEmpty()) {
-                            return;
-                        }
-
-                        JsonArray array = new JsonArray();
-                        List<Map.Entry<String, Set<String>>> missIdList = map.entrySet()
-                                .stream()
-                                .peek(e -> array.add(e.getKey()))
-                                .filter(e -> !e.getValue().contains(mqttCluster.id()))
-                                .collect(Collectors.toList());
-
-                        List<Future> futures = missIdList.stream().map(e -> {
-                            int requestId = clusterClient.nextRequestId();
-                            return clusterClient.requestMessage(requestId, e.getValue(), e.getKey())
-                                    .onSuccess(msg->{
-                                        if (!isExpiry(msg)){
-                                            messageStore.set(e.getKey(),msg);
-                                            clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),e.getKey(),false,null,0));
-                                        }
-                                    });
-                        }).collect(Collectors.toList());
-
-                        CompositeFuture.all(futures).onComplete(ar -> {
-                            // logger
-                            if (ar.failed()){
-                                logger.error("request message fail",ar.cause());
-                            }
-                            if (logger.isDebugEnabled())
-                                logger.debug("match id :{}", array.encode());
-
-                            array.forEach(o->{
-                                messageStore.get(o.toString())
-                                        .onSuccess(msg->{
-                                            if (msg!=null)
-                                                vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.getMessage().copy().put("retain",true)));
-                                        });
-                            });
-
-                        });
-            });*/
         }
     }
 
@@ -852,21 +699,9 @@ public class DispatcherVerticle extends AbstractVerticle {
                                                             if (!isExpiry(messageObj)) {
                                                                 messageStore.set(id,messageObj);
                                                                 cluster.proposal(ActionLog.saveMessage(clusterId,id,false,null,0));
-//                                                                clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,false,null,0));
                                                                 vertx.eventBus().send(address, message.copy().mergeIn(link).put("dup", true));
                                                             }
                                                         });
-                                                /*stateService.fetchMessageIndexWithReadIndex(Set.of(id))
-                                                        .onSuccess(map->{
-                                                            Set<String> set = map.get(id);
-                                                            set.remove(clusterId);
-                                                            if (set.isEmpty()){
-                                                                if (packetId!=null)
-                                                                    sessionStore.release(clientId, packetId);
-                                                                return;
-                                                            }
-                                                            clusterRequestAndSend(address,set,id,link);
-                                                        });*/
                                             }
                                         }
                                     });
@@ -875,18 +710,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                 });
     }
 
-   /* private void clusterRequestAndSend(String address,Set<String> nodeIds, String id,JsonObject link){
-        clusterClient.requestMessage(clusterClient.nextRequestId(),nodeIds,id)
-                .onFailure(t->logger.error("request message fail",t))
-                .onSuccess(messageObj->{
-                    JsonObject message = messageObj.getMessage();
-                    if (!isExpiry(messageObj)) {
-                        messageStore.set(id,messageObj);
-                        clusterClient.proposal(clusterClient.nextRequestId(),ActionLog.saveMessage(mqttCluster.id(),id,false,null,0));
-                        vertx.eventBus().send(address, message.copy().mergeIn(link).put("dup", true));
-                    }
-                });
-    }*/
 
     private boolean isExpiry(MessageObj messageObj){
         if (messageObj==null)

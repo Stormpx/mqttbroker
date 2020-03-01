@@ -17,9 +17,8 @@ import org.rocksdb.WriteOptions;
 
 import java.io.File;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class RocksDBClusterDataStore implements ClusterDataStore {
     private final static Logger logger= LoggerFactory.getLogger(RocksDBClusterDataStore.class);
@@ -160,24 +159,20 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
 
         Promise<List<LogEntry>> promise=Promise.promise();
         vertx.executeBlocking(p->{
-            RocksIterator rocksIterator = rocksDB.newIterator();
-            rocksIterator.seek(("log-"+start).getBytes());
-            List<LogEntry> logEntries=new LinkedList<>();
-            while (rocksIterator.isValid()){
-                String log = new String(rocksIterator.key());
-                if (log.startsWith("log")){
-                    Integer logIndex = Integer.valueOf(log.substring(3));
-                    if (logIndex<end) {
-                        LogEntry logEntry = LogEntry.decode(0, Buffer.buffer(rocksIterator.value()));
-                        logEntries.add(logEntry);
-                    }else{
-                        break;
-                    }
+            try {
+                List<byte[]> keyList=new ArrayList<>();
+                int s=start;
+                while (s<end){
+                    keyList.add(("log-"+s).getBytes());
+                    s++;
                 }
-                rocksIterator.next();
+                Map<byte[], byte[]> map = rocksDB.multiGet(keyList);
+                p.complete(map.values().stream().map(bytes -> LogEntry.decode(0,Buffer.buffer(bytes)))
+                        .sorted(Comparator.comparingInt(LogEntry::getIndex))
+                        .collect(Collectors.toList()));
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
             }
-            rocksIterator.close();
-            p.complete(logEntries);
         },promise);
 
         return promise.future();
