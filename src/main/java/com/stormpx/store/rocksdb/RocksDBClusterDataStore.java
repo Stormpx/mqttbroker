@@ -13,6 +13,7 @@ import io.vertx.core.logging.LoggerFactory;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.WriteOptions;
 
 import java.io.File;
 import java.nio.file.Paths;
@@ -188,7 +189,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         vertx.executeBlocking(p->{
             try {
                 String key="log-"+logEntry.getIndex();
-                rocksDB.put(key.getBytes(),logEntry.encode().getBytes());
+                rocksDB.put(new WriteOptions().setSync(false),key.getBytes(),logEntry.encode().getBytes());
             } catch (RocksDBException e) {
                 logger.error("save log fail",e);
             }
@@ -203,7 +204,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
 
         vertx.executeBlocking(p->{
             try {
-                rocksDB.deleteRange(("log-"+start).getBytes(),("log-"+end).getBytes());
+                rocksDB.deleteRange(new WriteOptions().setSync(false),("log-"+start).getBytes(),("log-"+end).getBytes());
             } catch (RocksDBException e) {
                 logger.error("del log fail",e);
             }

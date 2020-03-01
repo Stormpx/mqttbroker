@@ -56,7 +56,8 @@ public class ClusterState {
     }
 
     public ClusterState markTermFirstIndex() {
-        this.termFirstIndex = lastIndex;
+//        this.termFirstIndex = lastIndex;
+        this.termFirstIndex = logList.getLastLogIndex();
         return this;
     }
 
@@ -78,8 +79,8 @@ public class ClusterState {
         return lastApplied;
     }
     public int getLastIndex() {
-//        return logList.getLastLogIndex();
-        return lastIndex;
+        return logList.getLastLogIndex();
+//        return lastIndex;
     }
 
     public int getCurrentTerm() {

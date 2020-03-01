@@ -137,6 +137,11 @@ public class LogEntry {
         return Objects.hash(term, index, requestId, nodeId, payload);
     }
 
+    @Override
+    public String toString() {
+        return "LogEntry{" + "term=" + term + ", index=" + index + ", requestId=" + requestId + ", nodeId='" + nodeId + '\'' + ", payload=" + payload + ", length=" + length + '}';
+    }
+
     private static class LogEntryCodec implements MessageCodec<LogEntry,LogEntry> {
 
 

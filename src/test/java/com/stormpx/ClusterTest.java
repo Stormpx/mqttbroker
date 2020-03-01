@@ -52,8 +52,8 @@ public class ClusterTest {
         SessionStore sessionStore=new RocksDBSessionStore(vertx,dir);
         ClusterDataStore clusterDataStore=new RocksDBClusterDataStore(vertx,dir,nodeId);
 
-        MqttStateService stateService= new MqttStateService(vertx,messageStore,sessionStore);
-        ClusterClient clusterClient=new ClusterClient(vertx, stateService,messageStore,clusterDataStore);
+        MqttStateService stateService= new MqttStateService(vertx,sessionStore);
+        ClusterClient clusterClient=new ClusterClient(vertx, stateService,clusterDataStore);
         new MqttCluster(vertx,json,clusterDataStore,stateService,clusterClient)
             .start()
                 .onSuccess(v->{
@@ -125,7 +125,7 @@ public class ClusterTest {
                 });
 
 
-        logList.setLog(new LogEntry().setNodeId("123").setIndex(5).setTerm(2).setRequestId(15));
+        logList.setLog(new LogEntry().setNodeId("123").setIndex(5).setTerm(2).setRequestId(15),true);
 
         logList.getLog(5)
                 .onSuccess(log->{

@@ -23,7 +23,7 @@ import io.vertx.core.net.SocketAddress;
 import java.util.*;
 
 public class NetClusterImpl implements NetCluster {
-    private final static Logger logger= LoggerFactory.getLogger(NetCluster.class);
+    private final static Logger logger= LoggerFactory.getLogger("net");
     private Vertx vertx;
     private JsonObject config;
     private String id;

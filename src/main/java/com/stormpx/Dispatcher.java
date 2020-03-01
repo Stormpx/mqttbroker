@@ -34,7 +34,7 @@ public class Dispatcher {
     }
 
     public void takenOverSession(String id,String clientId,boolean sessionEnd){
-        vertx.eventBus().send("_session_taken_over_",new JsonObject().put("id",id).put("clientId",clientId).put("sessionEnd",sessionEnd));
+        vertx.eventBus().publish("_session_taken_over_",new JsonObject().put("id",id).put("clientId",clientId).put("sessionEnd",sessionEnd));
     }
 
     public void sessionAccept(String clientId,boolean cleanSession){

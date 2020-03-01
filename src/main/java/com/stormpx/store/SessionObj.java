@@ -1,11 +1,14 @@
 package com.stormpx.store;
 
+import io.vertx.core.buffer.Buffer;
+import io.vertx.core.eventbus.MessageCodec;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
 import java.util.*;
 
 public class SessionObj {
+    public final static SessionObjCodec CODEC=new SessionObjCodec();
     private String clientId;
     private Long expiryTimestamp;
     private Map<Integer, JsonObject> messageLinkMap;
@@ -99,4 +102,33 @@ public class SessionObj {
     public String toString() {
         return "SessionObj{" + "clientId='" + clientId + '\'' + ", expiryTimestamp=" + expiryTimestamp + ", messageLinkMap=" + messageLinkMap + ", topicSubscriptions=" + topicSubscriptions + ", pendingMessage=" + pendingMessage + ", packetIdSet=" + packetIdSet + ", will=" + will + '}';
     }
+
+    private static class SessionObjCodec implements MessageCodec<SessionObj,SessionObj> {
+
+        @Override
+        public void encodeToWire(Buffer buffer, SessionObj sessionObj) {
+
+        }
+
+        @Override
+        public SessionObj decodeFromWire(int pos, Buffer buffer) {
+            return null;
+        }
+
+        @Override
+        public SessionObj transform(SessionObj sessionObj) {
+            return sessionObj;
+        }
+
+        @Override
+        public String name() {
+            return "sessionObj";
+        }
+
+        @Override
+        public byte systemCodecID() {
+            return -1;
+        }
+    }
+
 }

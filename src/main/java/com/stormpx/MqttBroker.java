@@ -5,7 +5,14 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
+import com.stormpx.cluster.ClusterVerticle;
+import com.stormpx.cluster.RetainMatchResult;
+import com.stormpx.cluster.SessionResult;
+import com.stormpx.cluster.TopicMatchResult;
+import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.kit.UnSafeJsonObject;
+import com.stormpx.store.MessageObj;
+import com.stormpx.store.SessionObj;
 import io.netty.handler.logging.LogLevel;
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
@@ -76,11 +83,42 @@ public class MqttBroker {
         setLogLevel(config);
 
         vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
-
-        return deployDispatcherVerticle(vertx, config)
+        vertx.eventBus().registerDefaultCodec(ActionLog.class,ActionLog.CODEC);
+        vertx.eventBus().registerDefaultCodec(SessionResult.class,SessionResult.CODEC);
+        vertx.eventBus().registerDefaultCodec(RetainMatchResult.class, RetainMatchResult.CODEC);
+        vertx.eventBus().registerDefaultCodec(TopicMatchResult.class, TopicMatchResult.CODEC);
+        vertx.eventBus().registerDefaultCodec(SessionObj.class,SessionObj.CODEC);
+        vertx.eventBus().registerDefaultCodec(MessageObj.class,MessageObj.CODEC);
+        return tryDeployClusterVerticle(vertx,config)
+                .compose(v->deployDispatcherVerticle(vertx, config))
                 .compose(v->deployBrokerVerticle(vertx, config))
                 .map((Void)null);
 
+    }
+
+    private static boolean clusterEnable(JsonObject config){
+        JsonObject cluster = config.getJsonObject("cluster");
+        if (cluster==null)
+            cluster=new JsonObject();
+
+        String id = cluster.getString("id");
+        Integer port = cluster.getInteger("port");
+        JsonObject nodes = cluster.getJsonObject("nodes");
+        if (id==null||port==null||port<0||port>66535||nodes==null||nodes.isEmpty()){
+            return false;
+        }else{
+            config.put("isCluster",true);
+            return true;
+        }
+    }
+
+    private static Future<String> tryDeployClusterVerticle(Vertx vertx,JsonObject config){
+        if (!clusterEnable(config)){
+            return Future.succeededFuture("");
+        }
+        Promise<String> promise=Promise.promise();
+        vertx.deployVerticle(ClusterVerticle.class,new DeploymentOptions().setConfig(config),promise);
+        return promise.future();
     }
 
     private static Future<String> deployDispatcherVerticle(Vertx vertx,JsonObject config){

@@ -81,7 +81,8 @@ public class NetSocketWrapper implements MqttSocket {
 
     @Override
     public MqttSocket setKeepAlive(int keepAlive) {
-
+        if (closed)
+            return this;
         ChannelPipeline pipeline = ctx.pipeline();
         if (keepAlive==0){
             pipeline.remove("idleState");

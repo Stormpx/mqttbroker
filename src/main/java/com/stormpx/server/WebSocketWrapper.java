@@ -119,7 +119,8 @@ public class WebSocketWrapper implements MqttSocket {
         if (timeoutStream!=null) {
             this.timeoutStream.cancel();
         }
-        if (keepAlive!=0) {
+
+        if (!webSocketBase.isClosed()&&keepAlive!=0) {
             this.timeoutStream = vertx.periodicStream(keepAlive * 1500).handler(this::handleTimeout);
         }
         return this;

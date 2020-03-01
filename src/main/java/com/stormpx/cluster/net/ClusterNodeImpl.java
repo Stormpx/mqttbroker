@@ -58,9 +58,9 @@ public class ClusterNodeImpl implements ClusterNode {
 
     public Future<ClusterNodeImpl> connect(){
         return connect0().onFailure(t->{
-            logger.info("connect node: {} fail cause:{} try again ", nodeId,t.getMessage());
+            logger.warn("connect node: {} fail cause:{} try again ", nodeId,t.getMessage());
             //                    reConnect();
-            vertx.setTimer(10*1000,id->connect());
+            vertx.setTimer(5*1000,id->connect());
         });
 
     }

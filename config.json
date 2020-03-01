@@ -1,7 +1,7 @@
 {
   "sni": false,
   "tcp_no_delay": false,
-  "verticle_instance": 5,
+  "verticle_instance": 2,
   "mqtt": {
     "max_message_expiry_interval": 600,
     "max_session_expiry_interval": 600,
@@ -18,7 +18,7 @@
 
 
 
-  "log_level": "debug",
+  "log_level": "info",
   "log_dir": "/log",
 
   "save_enable": true,

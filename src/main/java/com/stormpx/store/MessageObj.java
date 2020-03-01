@@ -1,10 +1,15 @@
 package com.stormpx.store;
 
+import com.stormpx.cluster.TopicMatchResult;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.core.eventbus.MessageCodec;
 import io.vertx.core.json.JsonObject;
 
 import java.time.Instant;
 
 public class MessageObj {
+    public final static MessageObjCodec CODEC=new MessageObjCodec();
+
     private int refCnt =0;
 
     private long timestamp= Instant.now().getEpochSecond();
@@ -37,5 +42,36 @@ public class MessageObj {
     @Override
     public String toString() {
         return "MessageObj{" + "refCnt=" + refCnt + ", message=" + message + '}';
+    }
+
+
+
+    private static class MessageObjCodec implements MessageCodec<MessageObj,MessageObj> {
+
+
+        @Override
+        public void encodeToWire(Buffer buffer, MessageObj topicMatchResult) {
+
+        }
+
+        @Override
+        public MessageObj decodeFromWire(int pos, Buffer buffer) {
+            return null;
+        }
+
+        @Override
+        public MessageObj transform(MessageObj messageObj) {
+            return messageObj;
+        }
+
+        @Override
+        public String name() {
+            return "messageObj";
+        }
+
+        @Override
+        public byte systemCodecID() {
+            return -1;
+        }
     }
 }

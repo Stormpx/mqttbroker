@@ -25,7 +25,6 @@ public class MqttStateService implements StateService {
     private Vertx vertx;
     private MqttCluster mqttCluster;
 
-    private MessageStore messageStore;
     private SessionStore sessionStore;
 
     private Map<String, Function<JsonObject,Future<?>>> handlerMap;
@@ -45,9 +44,8 @@ public class MqttStateService implements StateService {
 
     private List<Handler<Void>> pending;
 
-    public MqttStateService(Vertx vertx, MessageStore messageStore, SessionStore sessionStore) {
+    public MqttStateService(Vertx vertx,SessionStore sessionStore) {
         this.vertx = vertx;
-        this.messageStore=messageStore;
         this.sessionStore=sessionStore;
         this.handlerMap=new HashMap<>();
         this.topicFilter=new TopicFilter();
@@ -59,7 +57,17 @@ public class MqttStateService implements StateService {
         this.mapMap=new HashMap<>();
     }
 
-
+    public MqttStateService(Vertx vertx ) {
+        this.vertx = vertx;
+        this.handlerMap=new HashMap<>();
+        this.topicFilter=new TopicFilter();
+        this.retainMap=new HashMap<>();
+        this.idIndexMap=new HashMap<>();
+        this.sessionMap=new HashMap<>();
+        this.idempotentMap=new HashMap<>();
+        this.pending=new ArrayList<>();
+        this.mapMap=new HashMap<>();
+    }
 
     @Override
     public Future<Void> init(MqttCluster mqttCluster) {
@@ -193,8 +201,10 @@ public class MqttStateService implements StateService {
         mqttCluster.readIndex()
                 .setHandler(ar->{
                    if (ar.failed()){
+                       logger.error("retainMapWithReadIndex failed",ar.cause());
                        pending.add(v-> retainMapWithReadIndex().onComplete(promise));
                    }else{
+
                        promise.complete(retainMap);
                    }
                 });
@@ -207,6 +217,7 @@ public class MqttStateService implements StateService {
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
+                        logger.error("topicMatchesWithReadIndex failed",ar.cause());
                         pending.add(v-> topicMatchesWithReadIndex(topic).onComplete(promise));
                     }else {
                         Collection<TopicFilter.SubscribeInfo> matches = this.topicFilter.matches(topic);
@@ -223,6 +234,7 @@ public class MqttStateService implements StateService {
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
+                        logger.error("fetchSessionIndexWithReadIndex failed",ar.cause());
                         pending.add(v-> fetchSessionIndexWithReadIndex(clientId).onComplete(promise));
                     }else{
                         Set<String> set = sessionMap.get(clientId);
@@ -239,6 +251,7 @@ public class MqttStateService implements StateService {
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
+                        logger.error("fetchMessageIndexWithReadIndex failed",ar.cause());
                         pending.add(v-> fetchMessageIndexWithReadIndex(ids).onComplete(promise));
                     }else{
                         promise.complete(fetchMessageIndex(ids));
@@ -345,7 +358,7 @@ public class MqttStateService implements StateService {
                 if ("y".equals(reset)) {
                     clientIdIndexSet.clear();
                     if (!nodeId.equals(mqttCluster.id())){
-                        sessionStore.del(clientId);
+//                        sessionStore.del(clientId);
                     }
                 }
                 clientIdIndexSet.add(nodeId);

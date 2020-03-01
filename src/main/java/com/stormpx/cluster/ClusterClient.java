@@ -18,16 +18,14 @@ public class ClusterClient {
     private Vertx vertx;
     private MqttCluster mqttCluster;
     private MqttStateService stateService;
-    private MessageStore messageStore;
     private ClusterDataStore clusterDataStore;
     private Map<Integer,MultipleRequest> responseFutureMap;
     private int requestId=1;
 
 
-    public ClusterClient(Vertx vertx,  MqttStateService stateService,MessageStore messageStore,ClusterDataStore clusterDataStore) {
+    public ClusterClient(Vertx vertx,  MqttStateService stateService,ClusterDataStore clusterDataStore) {
         this.vertx = vertx;
         this.stateService=stateService;
-        this.messageStore=messageStore;
         this.clusterDataStore=clusterDataStore;
         this.responseFutureMap=new HashMap<>();
     }
@@ -70,7 +68,7 @@ public class ClusterClient {
                         }
                     });
 
-            logger.error("leaderId:{} id:{}",leaderId,id);
+            logger.debug("leaderId:{} id:{}",leaderId,id);
             if (leaderId.equals(id)) {
                 stateService.handle(new RpcMessage(MessageType.REQUEST,id,id,requestId,buffer))
                         .onSuccess(r->fire(requestId,r.setNodeId(id)))
@@ -86,6 +84,7 @@ public class ClusterClient {
             stateService.addPendingEvent(v-> proposal(requestId,log));
         }
     }
+
 
 
     public void takenOverSession(JsonObject body){
@@ -140,8 +139,6 @@ public class ClusterClient {
                         Buffer payload = response.getPayload();
                         sessionObj = new ObjCodec().decodeSessionObj(payload);
 
-//                        sessionStore.save(sessionObj);
-
                     }
                     promise.tryComplete(sessionObj);
                 });
@@ -168,7 +165,7 @@ public class ClusterClient {
             this.nodeIds = new HashSet<>(nodeIds);
             this.requestId = requestId;
             this.promise=Promise.promise();
-            this.timeoutStream=vertx.timerStream(5500);
+            this.timeoutStream=vertx.timerStream(5000);
             this.timeoutStream.handler(v->{
                 logger.debug("requestId:{} timeout",requestId);
                 promise.tryFail("timeout");
