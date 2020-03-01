@@ -8,7 +8,7 @@ vertx写的mqtt broker
 
 ```
 git clone https://github.com/Stormpx/mqttbroker.git
-cd /jar
+cd /mqttbroker/jar
 java -jar mqttbroker-1.0-fat.jar -c /config1.json -c /config2.json
 ```
 
@@ -44,6 +44,14 @@ java -jar mqttbroker-1.0-fat.jar -c /config1.json -c /config2.json
     "subscription_identifier_available": true,
     "shared_subscription_available": true
   },
+  "cluster": {
+      "id": "machine1",
+      "port": 56421,
+      "nodes": {
+        "machine2": "127.0.0.1:56422",
+        "machine3": "127.0.0.1:56423"
+      }
+  },
   "tcp": {
     "host": "0.0.0.0",
     "port": 11883,
@@ -72,8 +80,6 @@ java -jar mqttbroker-1.0-fat.jar -c /config1.json -c /config2.json
   "log_level": "info",
   "log_dir": "/log",
 
-  "save_enable": true,
-  "save_interval": 120,
   "save_dir": "/data"
 }
 ```
