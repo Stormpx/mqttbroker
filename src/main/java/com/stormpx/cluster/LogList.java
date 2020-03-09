@@ -128,7 +128,7 @@ public class LogList {
         }
 
         clusterDataStore.delLog(start,lastLogIndex+1);
-        lastLogIndex=start-1;
+        lastLogIndex=start==0?0:start-1;
         clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
     }
 

@@ -33,6 +33,16 @@ public class MemoryClusterDataStore implements ClusterDataStore {
     }
 
     @Override
+    public void saveSnapshotIndex(int lastIncludeIndex, int lastIncludeTerm) {
+
+    }
+
+    @Override
+    public Future<JsonObject> getSnapshotIndex() {
+        return null;
+    }
+
+    @Override
     public void saveIndex(int firstIndex, int lastIndex) {
         if (index==null)
             index=new JsonObject();

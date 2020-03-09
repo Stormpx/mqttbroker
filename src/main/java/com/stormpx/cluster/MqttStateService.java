@@ -15,6 +15,8 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
+import io.vertx.core.streams.ReadStream;
+import io.vertx.core.streams.WriteStream;
 
 import java.util.*;
 import java.util.function.Function;
@@ -376,6 +378,16 @@ public class MqttStateService implements StateService {
             idempotentMap.get(nodeId).add(logEntry.getRequestId());
             response(nodeId,logEntry.getRequestId());
         }
+    }
+
+    @Override
+    public void loadSnapshot(ReadStream<Buffer> readStream) {
+
+    }
+
+    @Override
+    public void writeSnapshot(WriteStream<Buffer> writeStream) {
+
     }
 
     private void response(String nodeId,int requestId){

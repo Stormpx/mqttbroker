@@ -69,6 +69,16 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     }
 
     @Override
+    public void saveSnapshotIndex(int lastIncludeIndex, int lastIncludeTerm) {
+
+    }
+
+    @Override
+    public Future<JsonObject> getSnapshotIndex() {
+        return null;
+    }
+
+    @Override
     public void saveIndex(int firstIndex, int lastIndex) {
         vertx.executeBlocking(p->{
             try {

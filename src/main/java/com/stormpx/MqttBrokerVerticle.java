@@ -25,7 +25,6 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.PemKeyCertOptions;
-import io.vertx.core.net.impl.VertxHandler;
 import io.vertx.core.shareddata.LocalMap;
 
 import java.time.Instant;
@@ -45,8 +44,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     protected Dispatcher dispatcher;
 
     protected Authenticator authenticator;
-
-    private TimeoutStream willTimer;
 
     private JsonObject mqttConfig;
 
@@ -380,7 +377,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                         dataStorage.setExpiryTimestamp(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval()));
                     }
                     mqttServer.holder().add(mqttContext);
-                    logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
+                    logger.info("client:{} accpet ip:{} version:{} sessionExpiryInterval:{} keepalive:{}",
+                            mqttContext.session().clientIdentifier(),mqttContext.session().auth().getSocketAddress().toString(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
                     mqttContext.accept(b);
                     dispatcher.sessionAccept(clientId,!b);
                 });
@@ -953,9 +951,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     public void stop(Future<Void> stopFuture) throws Exception {
         if (mqttServer!=null){
             mqttServer.close();
-        }
-        if (willTimer!=null){
-            willTimer.cancel();
         }
         stopFuture.complete();
     }

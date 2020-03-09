@@ -2,10 +2,7 @@ package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.ClusterNode;
 import com.stormpx.cluster.NodeState;
-import com.stormpx.cluster.message.AppendEntriesMessage;
-import com.stormpx.cluster.message.MessageType;
-import com.stormpx.cluster.message.RpcMessage;
-import com.stormpx.cluster.message.VoteMessage;
+import com.stormpx.cluster.message.*;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Promise;
@@ -37,6 +34,8 @@ public class NetClusterImpl implements NetCluster {
     private Handler<AppendEntriesResponse> appendEntriesResponseHandler;
     private Handler<Response> responseHandler;
     private Handler<ReadIndexResponse> readIndexResponseHandler;
+    private Handler<InstallSnapshotRequest> installSnapshotRequestHandler;
+    private Handler<InstallSnapshotResponse> installSnapshotResponseHandler;
     //key nodeId value client
     private Map<String, ClusterNode> nodeMap;
 
@@ -154,6 +153,16 @@ public class NetClusterImpl implements NetCluster {
                 if (readIndexResponseHandler!=null)
                     readIndexResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),ReadIndexResponse.class));
                 break;
+            case INSTALLSNAPSHOTREQUEST:
+                Handler<InstallSnapshotRequest> installSnapshotRequestHandler = this.installSnapshotRequestHandler;
+                if (installSnapshotRequestHandler!=null)
+                    installSnapshotRequestHandler.handle(new InstallSnapshotRequest(netSocket,this,rpcMessage));
+                break;
+            case INSTALLSNAPSHOTRESPONSE:
+                Handler<InstallSnapshotResponse> installSnapshotResponseHandler = this.installSnapshotResponseHandler;
+                if (installSnapshotResponseHandler!=null)
+                    installSnapshotResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),InstallSnapshotResponse.class));
+                break;
         }
     }
 
@@ -210,6 +219,18 @@ public class NetClusterImpl implements NetCluster {
     @Override
     public NetCluster requestIndexResponseHandler(Handler<ReadIndexResponse> handler) {
         this.readIndexResponseHandler=handler;
+        return this;
+    }
+
+    @Override
+    public NetCluster installSnapshotRequestHandler(Handler<InstallSnapshotRequest> handler) {
+        this.installSnapshotRequestHandler=handler;
+        return this;
+    }
+
+    @Override
+    public NetCluster installSnapshotResponseHandler(Handler<InstallSnapshotResponse> handler) {
+        this.installSnapshotResponseHandler=handler;
         return this;
     }
 
@@ -284,6 +305,16 @@ public class NetClusterImpl implements NetCluster {
 
 
         RpcMessage rpcMessage = new RpcMessage(MessageType.APPENDENTRIESREQUEST, nodeId, id, 0, appendEntriesMessage.encode());
+        sendOrProxy(rpcMessage);
+    }
+
+    @Override
+    public void request(String nodeId, InstallSnapshotMessage installSnapshotMessage) {
+        if (!nodeEexist(nodeId)) {
+            logger.error("unknown node: {}",nodeId);
+            return;
+        }
+        RpcMessage rpcMessage = new RpcMessage(MessageType.REQUEST, nodeId, id, 0, installSnapshotMessage.encode());
         sendOrProxy(rpcMessage);
     }
 

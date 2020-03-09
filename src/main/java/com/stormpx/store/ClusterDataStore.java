@@ -12,6 +12,10 @@ public interface ClusterDataStore {
 
     Future<Integer> requestId();
 
+    void saveSnapshotIndex(int lastIncludeIndex,int lastIncludeTerm);
+
+    Future<JsonObject> getSnapshotIndex();
+
     void saveIndex(int firstIndex,int lastIndex);
 
     Future<JsonObject> getIndex();

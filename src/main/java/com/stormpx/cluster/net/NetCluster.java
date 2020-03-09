@@ -2,6 +2,7 @@ package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.ClusterNode;
 import com.stormpx.cluster.message.AppendEntriesMessage;
+import com.stormpx.cluster.message.InstallSnapshotMessage;
 import com.stormpx.cluster.message.VoteMessage;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -31,6 +32,9 @@ public interface NetCluster {
 
     NetCluster requestIndexResponseHandler(Handler<ReadIndexResponse> handler);
 
+    NetCluster installSnapshotRequestHandler(Handler<InstallSnapshotRequest> handler);
+
+    NetCluster installSnapshotResponseHandler(Handler<InstallSnapshotResponse> handler);
 
     ClusterNode getNode(String id);
 
@@ -41,6 +45,8 @@ public interface NetCluster {
     void request(String nodeId, VoteMessage voteMessage);
 
     void request(String nodeId, AppendEntriesMessage appendEntriesMessage);
+
+    void request(String nodeId, InstallSnapshotMessage installSnapshotMessage);
 
     void request(String nodeId,int requestId, Buffer buffer);
 

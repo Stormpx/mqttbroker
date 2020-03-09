@@ -1,6 +1,5 @@
 package com.stormpx.store;
 
-import com.stormpx.cluster.TopicMatchResult;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
 import io.vertx.core.json.JsonObject;

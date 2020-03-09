@@ -2,7 +2,8 @@ package com.stormpx.cluster;
 
 import com.stormpx.cluster.message.*;
 import com.stormpx.cluster.net.*;
-import com.stormpx.kit.value.Values2;
+import com.stormpx.cluster.snapshot.Snapshot;
+import com.stormpx.cluster.snapshot.SnapshotWriter;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
@@ -13,7 +14,6 @@ import io.vertx.core.logging.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class MqttCluster {
     private final static Logger logger= LoggerFactory.getLogger(MqttCluster.class);
@@ -33,6 +33,7 @@ public class MqttCluster {
     private ClusterState clusterState;
 
     private LogList logList;
+    private Snapshot snapshot;
 
     private MemberType memberType=MemberType.FOLLOWER;
 
@@ -70,6 +71,7 @@ public class MqttCluster {
                     this.netCluster=new NetClusterImpl(vertx,config);
                     return this.netCluster.appendEntriesRequestHandler(this::handleAppendEntriesRequest)
                             .appendEntriesResponseHandler(this::handleAppendEntriesResponse)
+                            .installSnapshotRequestHandler(this::handleInstallRequestHandler)
                             .voteRequestHandler(this::handleVoteRequest)
                             .voteResponseHandler(this::handleVoteResponse)
                             .requestHandler(this::handleRequest)
@@ -82,6 +84,8 @@ public class MqttCluster {
 
     }
 
+
+
     private Future<ClusterState> loadClusterState(String id) {
         return clusterDataStore.getState()
                 .compose(state->{
@@ -90,7 +94,6 @@ public class MqttCluster {
 
                     if (state!=null){
                         clusterState.setCurrentTerm(state.getInteger("term"));
-//                        clusterState.setLastIndex(state.getInteger("lastIndex"));
                         clusterState.setCommitIndex(state.getInteger("commitIndex"));
 
                     }
@@ -153,7 +156,52 @@ public class MqttCluster {
     }
 
     private void handleResponse(Response response){
-        clusterClient.fire(response.getRequestId(),response);
+        clusterClient.fireResponse(response.getRequestId(),response);
+    }
+
+
+    private void handleInstallRequestHandler(InstallSnapshotRequest installSnapshotRequest) {
+        InstallSnapshotMessage installSnapshotMessage = installSnapshotRequest.getInstallSnapshotMessage();
+        if (installSnapshotMessage.getTerm()<clusterState.getCurrentTerm()){
+            installSnapshotRequest.response(false,0,clusterState.getCurrentTerm());
+            return;
+        }
+
+        if (installSnapshotMessage.getLastIncludeIndex()<clusterState.getCommitIndex()){
+            installSnapshotRequest.response(false,0,clusterState.getCurrentTerm());
+            return;
+        }
+
+
+        if (snapshot.snapshotting()){
+            SnapshotWriter snapshotWriter = snapshot.writer();
+            if (snapshotWriter.getId().equals(installSnapshotMessage.getLeaderId())){
+                int num = installSnapshotMessage.getNum() - snapshotWriter.getNum();
+                if (num ==1){
+                    logger.debug("receive snapshot chunk currentNum:{} num:{} write ",snapshotWriter.getNum(),installSnapshotMessage.getNum());
+                    snapshotWriter.write(installSnapshotMessage.getBuffer());
+                }else if (Math.abs(num)>1){
+                    logger.error("receive illegal snapshot chunk currentNum:{} num:{}",snapshotWriter.getNum(),installSnapshotMessage.getNum());
+                    snapshot.drop(installSnapshotMessage.getLeaderId());
+                }
+                installSnapshotRequest.response(num<=1,snapshotWriter.getNum(),clusterState.getCurrentTerm());
+
+            }else{
+                // compare index if index newer than current snapshotWriter replaced
+                if (installSnapshotMessage.getNum()!=0){
+                    installSnapshotRequest.response(false,snapshotWriter.getNum(),clusterState.getCurrentTerm());
+                    return;
+                }
+
+            }
+        }else {
+            snapshot.newWriter(installSnapshotMessage.getLeaderId(), installSnapshotMessage.getLastIncludeIndex(), installSnapshotMessage.getTerm())
+                    .onFailure(t -> installSnapshotRequest.response(false, 0, clusterState.getCurrentTerm()))
+                    .onSuccess(writer -> {
+                        writer.write(installSnapshotMessage.getBuffer());
+                        installSnapshotRequest.response(true,writer.getNum(),clusterState.getCurrentTerm());
+                    });
+        }
     }
 
     private void handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest){
@@ -192,6 +240,7 @@ public class MqttCluster {
                 logList.truncateSuffix(0);
                 appendEntriesRequest.response(clusterState.getCurrentTerm(),appendLog(appendEntriesMessage,logEntries),true);
             }else {
+                //get prevLogIndex --- prevLogIndex+1
                 logList.getLog(prevLogIndex, prevLogIndex + 2).onFailure(t -> {
                     appendEntriesRequest.response(clusterState.getCurrentTerm(), appendEntriesMessage.getPrevLogIndex(), false);
                     logger.error("get log index:{} failed", t, prevLogIndex);
