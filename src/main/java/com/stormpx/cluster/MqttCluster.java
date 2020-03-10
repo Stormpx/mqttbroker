@@ -1,8 +1,11 @@
 package com.stormpx.cluster;
 
+import com.stormpx.Constants;
 import com.stormpx.cluster.message.*;
 import com.stormpx.cluster.net.*;
 import com.stormpx.cluster.snapshot.Snapshot;
+import com.stormpx.cluster.snapshot.SnapshotContext;
+import com.stormpx.cluster.snapshot.SnapshotMeta;
 import com.stormpx.cluster.snapshot.SnapshotWriter;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.*;
@@ -34,6 +37,7 @@ public class MqttCluster {
 
     private LogList logList;
     private Snapshot snapshot;
+    private boolean installingSnapshot;
 
     private MemberType memberType=MemberType.FOLLOWER;
 
@@ -84,7 +88,28 @@ public class MqttCluster {
 
     }
 
+    private Future<Void> loadSnapshot(){
+        Promise<Void> promise=Promise.promise();
+        clusterDataStore.getSnapshotIndex()
+                .compose(json->{
+                    int lastIndex=0;
+                    int lastTerm=0;
+                    if (json!=null){
+                        lastIndex=json.getInteger("");
+                        lastTerm=json.getInteger("");
+                    }
+                    this.snapshot=new Snapshot(vertx,clusterState.getId(),lastIndex,lastTerm,config.getString(Constants.SAVE_DIR));
+                    snapshot.snapshotHandler(this::tryInstallSnapshot);
+                    if (lastIndex!=0){
 
+                    }
+                    return Future.succeededFuture();
+                })
+                .map((Void)null)
+                .setHandler(promise);
+
+        return promise.future();
+    }
 
     private Future<ClusterState> loadClusterState(String id) {
         return clusterDataStore.getState()
@@ -143,6 +168,31 @@ public class MqttCluster {
                 });
     }
 
+    private void tryInstallSnapshot(SnapshotMeta meta){
+        int index = meta.getIndex();
+        int term = meta.getTerm();
+        if (!meta.getNodeId().equals(clusterState.getId())){
+            // install snapshot
+            installingSnapshot=true;
+            snapshot.reader(clusterState.getId())
+                .onFailure(t-> {
+                    logger.error("get snapshot reader failed",t);
+                    installingSnapshot=false;
+                })
+                .onSuccess(reader->stateService.applySnapshot(reader).onComplete(ar->{
+                    if (ar.failed())
+                        logger.error("apply snapshot failed",ar.cause());
+                    installingSnapshot=false;
+
+                    reader.done();
+
+                }))
+            ;
+        }
+        logList.truncatePrefix(index);
+        clusterDataStore.saveSnapshotIndex(index,term);
+    }
+
     private void handleRequest(Request request){
         stateService.handle(request.getRpcMessage())
                 .setHandler(ar->{
@@ -163,46 +213,90 @@ public class MqttCluster {
     private void handleInstallRequestHandler(InstallSnapshotRequest installSnapshotRequest) {
         InstallSnapshotMessage installSnapshotMessage = installSnapshotRequest.getInstallSnapshotMessage();
         if (installSnapshotMessage.getTerm()<clusterState.getCurrentTerm()){
-            installSnapshotRequest.response(false,0,clusterState.getCurrentTerm());
+            installSnapshotRequest.response(false,false,0,clusterState.getCurrentTerm());
             return;
         }
+
+        becomeFollower(installSnapshotMessage.getTerm(),true);
 
         if (installSnapshotMessage.getLastIncludeIndex()<clusterState.getCommitIndex()){
-            installSnapshotRequest.response(false,0,clusterState.getCurrentTerm());
+            installSnapshotRequest.response(true,true,0,clusterState.getCurrentTerm());
             return;
         }
 
-
         if (snapshot.snapshotting()){
-            SnapshotWriter snapshotWriter = snapshot.writer();
-            if (snapshotWriter.getId().equals(installSnapshotMessage.getLeaderId())){
-                int num = installSnapshotMessage.getNum() - snapshotWriter.getNum();
-                if (num ==1){
-                    logger.debug("receive snapshot chunk currentNum:{} num:{} write ",snapshotWriter.getNum(),installSnapshotMessage.getNum());
-                    snapshotWriter.write(installSnapshotMessage.getBuffer());
-                }else if (Math.abs(num)>1){
-                    logger.error("receive illegal snapshot chunk currentNum:{} num:{}",snapshotWriter.getNum(),installSnapshotMessage.getNum());
-                    snapshot.drop(installSnapshotMessage.getLeaderId());
-                }
-                installSnapshotRequest.response(num<=1,snapshotWriter.getNum(),clusterState.getCurrentTerm());
+            SnapshotContext snapshotContext = snapshot.writerContext();
+
+            if (snapshotContext.getSnapshotMeta().getNodeId().equals(installSnapshotMessage.getLeaderId())){
+                snapshotContext.getWriter()
+                        .onSuccess(snapshotWriter->{
+                            logger.debug("receive snapshot chunk current offset:{}  offset:{} write ",snapshotWriter.getOffset(),installSnapshotMessage.getOffset());
+                            boolean accept=false;
+                            if (installSnapshotMessage.getOffset()==snapshotWriter.getOffset()){
+
+                                snapshotWriter.write(installSnapshotMessage.getBuffer());
+                                if (installSnapshotMessage.isDone()){
+                                    snapshotWriterDone(installSnapshotRequest,snapshotWriter);
+                                    return;
+                                }
+                                accept=true;
+
+                            }
+                            installSnapshotRequest.response(accept,false,snapshotWriter.getOffset(),clusterState.getCurrentTerm());
+                        });
 
             }else{
-                // compare index if index newer than current snapshotWriter replaced
-                if (installSnapshotMessage.getNum()!=0){
-                    installSnapshotRequest.response(false,snapshotWriter.getNum(),clusterState.getCurrentTerm());
-                    return;
-                }
+                // compare index if index newer than current snapshotWriter index replaced
+                logger.debug("snapshotting id:{} requset leaderId:{}",snapshotContext.getSnapshotMeta().getNodeId(),installSnapshotMessage.getLeaderId());
+                snapshotContext.getWriter()
+                        .onSuccess(snapshotWriter->{
+                            if (installSnapshotMessage.getLastIncludeIndex()<=snapshotWriter.getSnapshotMeta().getIndex()){
+                                installSnapshotRequest.response(false,false,0,clusterState.getCurrentTerm());
+                                return;
+                            }
 
+                            if (installSnapshotMessage.getOffset()!=0){
+                                installSnapshotRequest.response(true,false,0,clusterState.getCurrentTerm());
+                                return;
+                            }
+
+                            startWriter(installSnapshotRequest);
+                        });
             }
         }else {
-            snapshot.newWriter(installSnapshotMessage.getLeaderId(), installSnapshotMessage.getLastIncludeIndex(), installSnapshotMessage.getTerm())
-                    .onFailure(t -> installSnapshotRequest.response(false, 0, clusterState.getCurrentTerm()))
-                    .onSuccess(writer -> {
-                        writer.write(installSnapshotMessage.getBuffer());
-                        installSnapshotRequest.response(true,writer.getNum(),clusterState.getCurrentTerm());
-                    });
+            startWriter(installSnapshotRequest);
         }
     }
+
+    private void startWriter(InstallSnapshotRequest installSnapshotRequest){
+        InstallSnapshotMessage installSnapshotMessage = installSnapshotRequest.getInstallSnapshotMessage();
+        snapshot.newWriter(installSnapshotMessage.getLeaderId(), installSnapshotMessage.getLastIncludeIndex(), installSnapshotMessage.getTerm())
+                .getWriter()
+                .onFailure(t -> installSnapshotRequest.response(false,false, 0, clusterState.getCurrentTerm()))
+                .onSuccess(writer -> {
+                    writer.write(installSnapshotMessage.getBuffer());
+                    if (installSnapshotMessage.isDone()){
+                        snapshotWriterDone(installSnapshotRequest,writer);
+                    }
+                    installSnapshotRequest.response(true,false,writer.getOffset(),clusterState.getCurrentTerm());
+
+                });
+    }
+
+    private void snapshotWriterDone(InstallSnapshotRequest installSnapshotRequest,SnapshotWriter snapshotWriter){
+        InstallSnapshotMessage installSnapshotMessage = installSnapshotRequest.getInstallSnapshotMessage();
+        snapshotWriter.end()
+                .onFailure(t->{
+                    logger.error("try finish writer failed",t);
+                    installSnapshotRequest.response(true,false,snapshotWriter.getOffset()-(snapshotWriter.getOffset()-installSnapshotMessage.getOffset()),clusterState.getCurrentTerm());
+                })
+                .onSuccess(v->{
+                    installSnapshotRequest.response(true,true,snapshotWriter.getOffset(),clusterState.getCurrentTerm());
+                });
+    }
+
+
+
 
     private void handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest){
         AppendEntriesMessage appendEntriesMessage =

@@ -9,6 +9,7 @@ public class InstallSnapshotMessage {
     private int lastIncludeTerm;
     private boolean done;
     private int num;
+    private int offset;
     private Buffer buffer;
 
     public static InstallSnapshotMessage decode(Buffer buffer){
@@ -110,6 +111,15 @@ public class InstallSnapshotMessage {
 
     public InstallSnapshotMessage setBuffer(Buffer buffer) {
         this.buffer = buffer;
+        return this;
+    }
+
+    public int getOffset() {
+        return offset;
+    }
+
+    public InstallSnapshotMessage setOffset(int offset) {
+        this.offset = offset;
         return this;
     }
 }

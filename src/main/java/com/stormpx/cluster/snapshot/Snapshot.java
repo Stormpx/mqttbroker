@@ -1,8 +1,8 @@
 package com.stormpx.cluster.snapshot;
 
 import com.stormpx.kit.value.Values2;
-import com.stormpx.kit.value.Values3;
 import io.vertx.core.Future;
+import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.file.AsyncFile;
@@ -12,66 +12,181 @@ import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.io.File;
-import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Snapshot {
     private final static Logger logger= LoggerFactory.getLogger(Snapshot.class);
     private final static String SNAPSHOT_FILE="snapshot";
+
     private Vertx vertx;
-    private int index;
-    private int term;
+
+    private SnapshotMeta snapshotMeta;
+
     private String dir;
 
-    private SnapshotWriter snapshotWriter;
+    private SnapshotContext snapshotContext;
 
     private boolean writeSnapshot;
-    private boolean readSnapshot;
 
-    public Snapshot(Vertx vertx, int index, int term, String dir) {
+    private Map<String,SnapshotReader> snapshotReaderMap;
+
+    private Handler<SnapshotMeta> snapshotHandler;
+
+    private Handler<Void> safetyHandler;
+
+    private Promise<AsyncFile> promise=Promise.promise();
+
+    public Snapshot(Vertx vertx,String id, int index, int term, String dir) {
         this.vertx = vertx;
-        this.index = index;
-        this.term = term;
+        this.snapshotMeta=new SnapshotMeta(id,index,term);
+        this.snapshotReaderMap=new HashMap<>();
         this.dir = dir;
+        if (index!=0) {
+            reOpenSnapshot();
+        }
     }
 
-    public Future<SnapshotWriter> newWriter(String id, int index, int term){
-        writeSnapshot =true;
-        return createTempFile()
-                .compose(path->openFile(path).map(af-> Values2.values(path,af)))
-                .map(value->{
+    private void reOpenSnapshot(){
+        openFile(dir + File.separator + SNAPSHOT_FILE)
+                .onFailure(t ->{
+                    logger.error("open snapshot failed retry", t);
+                    reOpenSnapshot();
+                })
+                .onSuccess(af->promise.tryComplete(af));
+    }
+
+    void readDone(String nodeId){
+        snapshotReaderMap.remove(nodeId);
+        if (snapshotReaderMap.isEmpty()){
+            promise.future()
+                    .onSuccess(af->{
+                        af.close(v->{
+                            this.promise=Promise.promise();
+                            Handler<Void> safetyHandler = this.safetyHandler;
+                            if (safetyHandler !=null)
+                                safetyHandler.handle(null);
+                        });
+                    });
+        }
+    }
+
+    private void onSafe(Handler<Void> handler) {
+        this.safetyHandler = handler;
+        readDone(null);
+    }
+
+    public Future<SnapshotReader> reader(String nodeId){
+        SnapshotReader reader = snapshotReaderMap.get(nodeId);
+        if (reader!=null){
+            return Future.succeededFuture(reader);
+        }
+        return promise.future()
+                .map(af->{
+                    //check again
+                    SnapshotReader r = snapshotReaderMap.get(nodeId);
+                    if (r!=null){
+                        return r;
+                    }
+                    SnapshotReader snapshotReader = new SnapshotReader(this,nodeId, af);
+                    snapshotReaderMap.put(nodeId,snapshotReader);
+                    return snapshotReader;
+                });
+
+    }
+
+
+    private void handleWriterFuture(SnapshotWriter snapshotWriter){
+        snapshotWriter.future().setHandler(ar -> {
+            String path = snapshotWriter.getPath();
+            SnapshotMeta snapshotMeta = snapshotWriter.getSnapshotMeta();
+            if (ar.succeeded() && this.snapshotMeta.getNodeId().equals(snapshotMeta.getNodeId())) {
+                Promise<Void> promise = ar.result();
+                // wait all reader done
+                onSafe(v->{
+                    drop(snapshotMeta.getNodeId());
+                    if (snapshotMeta.getIndex()<this.snapshotMeta.getIndex()){
+                        promise.tryFail(String.format("snapshot index:%s older than current snapshot index:%s",snapshotMeta.getIndex(),this.snapshotMeta.getIndex()));
+                        reOpenSnapshot();
+                        return;
+                    }
+                    vertx.fileSystem().move(path, dir + File.separator + SNAPSHOT_FILE, new CopyOptions().setAtomicMove(true).setReplaceExisting(true), arr -> {
+                        reOpenSnapshot();
+                        if (arr.succeeded()) {
+                            this.snapshotMeta = snapshotMeta;
+                            Handler<SnapshotMeta> snapshotHandler = this.snapshotHandler;
+                            if (snapshotHandler != null) {
+                                snapshotHandler.handle(this.snapshotMeta);
+                            }
+
+                            promise.tryComplete();
+
+                        } else {
+                            logger.error("move {} to {} failed", arr.cause(), path, dir + File.separator + SNAPSHOT_FILE);
+                            vertx.fileSystem().delete(path, r -> { });
+
+                            promise.tryFail(arr.cause());
+                        }
+                    });
+                });
+            } else {
+                drop(snapshotMeta.getNodeId());
+                vertx.fileSystem().delete(path, r -> { });
+            }
+        });
+
+    }
+
+    public SnapshotContext newWriter(String id, int index, int term){
+        writeSnapshot = true;
+        SnapshotMeta snapshotMeta = new SnapshotMeta(id, index, term);
+        SnapshotContext snapshotContext = new SnapshotContext(snapshotMeta);
+
+        Future<SnapshotWriter> snapshotWriterFuture = createTempFile()
+                .compose(path -> openFile(path).map(af -> Values2.values(path, af)))
+                .map(value -> {
                     String path = value.getOne();
                     AsyncFile af = value.getTwo();
-                    SnapshotWriter snapshotWriter = new SnapshotWriter(id,af);
-                    snapshotWriter.future()
-                            .setHandler(v->{
-                                if (v.succeeded()&&id.equals(snapshotWriter.getId())){
-                                    vertx.fileSystem().move(path,dir + File.separator + SNAPSHOT_FILE,new CopyOptions().setAtomicMove(true).setReplaceExisting(true),arr->{
-                                        if (arr.succeeded()){
-                                            this.index=index;
-                                            this.term=term;
-                                        }else{
-                                            logger.error("move snapshot failed",arr.cause());
-                                            vertx.fileSystem().delete(path,r->{});
-                                        }
-                                        drop(id);
-                                    });
-                                }else{
-                                    drop(id);
-                                    vertx.fileSystem().delete(path,r->{});
-                                }
-                            });
-                    this.snapshotWriter=snapshotWriter;
+                    SnapshotWriter snapshotWriter = new SnapshotWriter(snapshotMeta, path,af);
+                    handleWriterFuture(snapshotWriter);
+                    SnapshotContext context = this.snapshotContext;
+                    if (context!=null)
+                        context.getWriter().onSuccess(SnapshotWriter::end);
+
                     return snapshotWriter;
-                })
-                .onFailure(t->writeSnapshot=false);
+                }).onFailure(t -> writeSnapshot = false);
+
+        snapshotContext.setWriterFuture(snapshotWriterFuture);
+
+        this.snapshotContext=snapshotContext;
+
+        return snapshotContext;
+
     }
 
     public void drop(String id){
-        if (this.snapshotWriter.getId().equals(id)){
-            this.snapshotWriter=null;
+        if (this.snapshotContext.getSnapshotMeta().getNodeId().equals(id)){
+            this.snapshotContext=null;
             this.writeSnapshot=false;
         }
     }
+
+
+    public SnapshotContext writerContext(){
+        return snapshotContext;
+    }
+
+    public boolean snapshotting(){
+        return writeSnapshot;
+    }
+
+    public Snapshot snapshotHandler(Handler<SnapshotMeta> snapshotHandler) {
+        this.snapshotHandler = snapshotHandler;
+        return this;
+    }
+
+
+
 
     private Future<String> createTempFile(){
         Promise<String> promise=Promise.promise();
@@ -84,13 +199,4 @@ public class Snapshot {
         vertx.fileSystem().open(path,new OpenOptions().setWrite(true),promise);
         return promise.future();
     }
-
-    public SnapshotWriter writer(){
-        return snapshotWriter;
-    }
-
-    public boolean snapshotting(){
-        return snapshotWriter!=null;
-    }
-
 }

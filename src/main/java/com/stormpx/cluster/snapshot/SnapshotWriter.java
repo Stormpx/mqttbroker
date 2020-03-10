@@ -1,9 +1,7 @@
 package com.stormpx.cluster.snapshot;
 
 import io.vertx.core.Future;
-import io.vertx.core.Handler;
 import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.file.AsyncFile;
 import io.vertx.core.logging.Logger;
@@ -11,40 +9,58 @@ import io.vertx.core.logging.LoggerFactory;
 
 public class SnapshotWriter {
     private final static Logger logger= LoggerFactory.getLogger(SnapshotWriter.class);
-    private String id;
-    private int num;
+    private SnapshotMeta snapshotMeta;
+    private String path;
+    private int offset;
     private AsyncFile asyncFile;
-    private Promise<Void> promise;
+    private boolean close;
+    private Promise<Promise<Void>> promise;
 
-    public SnapshotWriter(String id, AsyncFile asyncFile) {
-        this.id=id;
+    public SnapshotWriter(SnapshotMeta snapshotMeta,String path, AsyncFile asyncFile) {
+        this.snapshotMeta=snapshotMeta;
+        this.path=path;
         this.asyncFile = asyncFile;
         this.promise=Promise.promise();
     }
 
     public void write(Buffer buffer){
-        num++;
-        asyncFile.write(buffer, ar->{
+        offset+=buffer.length();
+        asyncFile.write(buffer.copy(), ar->{
             if (!ar.succeeded()) {
-                logger.error("writeSnapshot snapshot failed",ar.cause());
+                logger.error("write snapshot failed",ar.cause());
                 end();
             }
         });
     }
 
-    public void end(){
-        asyncFile.end(promise);
-    }
+    public Future<Void> end(){
 
-    public Future<Void> future(){
+        Promise<Void> promise=Promise.promise();
+        asyncFile.end(ar->{
+            if (ar.succeeded()){
+                this.promise.complete(promise);
+            }else{
+                this.promise.tryFail(ar.cause());
+                promise.tryFail(ar.cause());
+            }
+        });
         return promise.future();
     }
 
-    public String getId() {
-        return id;
+    Future<Promise<Void>> future(){
+        return promise.future();
     }
 
-    public int getNum() {
-        return num;
+    public SnapshotMeta getSnapshotMeta() {
+        return snapshotMeta;
+    }
+
+    public String getPath() {
+        return path;
+    }
+
+
+    public int getOffset() {
+        return offset;
     }
 }

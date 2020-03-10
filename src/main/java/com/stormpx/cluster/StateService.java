@@ -4,6 +4,8 @@ package com.stormpx.cluster;
 import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.net.Request;
 import com.stormpx.cluster.net.Response;
+import com.stormpx.cluster.snapshot.SnapshotReader;
+import com.stormpx.cluster.snapshot.SnapshotWriter;
 import io.vertx.core.Future;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.streams.ReadStream;
@@ -23,8 +25,8 @@ public interface StateService {
     void applyLog(LogEntry logEntry);
 
 
-    void loadSnapshot(ReadStream<Buffer> readStream);
+    Future<Void> applySnapshot(SnapshotReader snapshotReader);
 
-    void writeSnapshot(WriteStream<Buffer> writeStream);
+    void writeSnapshot(SnapshotWriter snapshotWriter);
 
 }

@@ -2,8 +2,9 @@ package com.stormpx.cluster.net;
 
 public class InstallSnapshotResponse {
     private boolean accept;
+    private boolean done;
     private int term;
-    private int lastNum;
+    private int nextOffset;
 
 
     public int getTerm() {
@@ -15,14 +16,6 @@ public class InstallSnapshotResponse {
         return this;
     }
 
-    public int getLastNum() {
-        return lastNum;
-    }
-
-    public InstallSnapshotResponse setLastNum(int lastNum) {
-        this.lastNum = lastNum;
-        return this;
-    }
 
     public boolean isAccept() {
         return accept;
@@ -30,6 +23,24 @@ public class InstallSnapshotResponse {
 
     public InstallSnapshotResponse setAccept(boolean accept) {
         this.accept = accept;
+        return this;
+    }
+
+    public boolean isDone() {
+        return done;
+    }
+
+    public InstallSnapshotResponse setDone(boolean done) {
+        this.done = done;
+        return this;
+    }
+
+    public int getNextOffset() {
+        return nextOffset;
+    }
+
+    public InstallSnapshotResponse setNextOffset(int nextOffset) {
+        this.nextOffset = nextOffset;
         return this;
     }
 }
