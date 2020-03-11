@@ -1,6 +1,7 @@
 package com.stormpx.store;
 
 import com.stormpx.cluster.LogEntry;
+import com.stormpx.cluster.snapshot.SnapshotMeta;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 
@@ -12,9 +13,9 @@ public interface ClusterDataStore {
 
     Future<Integer> requestId();
 
-    void saveSnapshotIndex(int lastIncludeIndex,int lastIncludeTerm);
+    void saveSnapshotMeta(SnapshotMeta snapshotMeta);
 
-    Future<JsonObject> getSnapshotIndex();
+    Future<SnapshotMeta> getSnapshotMeta();
 
     void saveIndex(int firstIndex,int lastIndex);
 

@@ -1,12 +1,10 @@
 package com.stormpx.cluster;
 
 
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class ClusterState {
     private final static Logger logger= LoggerFactory.getLogger(ClusterState.class);
@@ -17,12 +15,14 @@ public class ClusterState {
     private int lastIndex;
     private int commitIndex;
     private int lastApplied;
+    private int compactInterval;
 
     private LogList logList;
-    private Map<Integer, LogEntry> logMap;
+
 
     public ClusterState() {
-        this.logMap =new HashMap<>();
+        ThreadLocalRandom localRandom = ThreadLocalRandom.current();
+        this.compactInterval = localRandom.nextInt(8500, 12500);
     }
 
 
@@ -33,30 +33,10 @@ public class ClusterState {
     }
 
 
-    public LogEntry getLog(int index){
-        return logMap.get(index);
-    }
 
-    public LogEntry addLog(String nodeId,int requestId,Buffer buffer){
-        int index = ++lastIndex;
-        LogEntry logEntry = new LogEntry().setIndex(index).setTerm(currentTerm).setNodeId(nodeId).setRequestId(requestId).setPayload(buffer);
-        if (logger.isDebugEnabled()) {
-            logger.error("add new log index:{} term:{} nodeId:{} requestId:{} buffer:{}", index, currentTerm, nodeId, requestId, buffer);
-        }
-        logMap.put(index, logEntry);
-        return logEntry;
-    }
 
-    public void setLog(LogEntry logEntry){
-        logMap.put(logEntry.getIndex(), logEntry);
-    }
-
-    public void delLog(int index){
-        logMap.remove(index);
-    }
 
     public ClusterState markTermFirstIndex() {
-//        this.termFirstIndex = lastIndex;
         this.termFirstIndex = logList.getLastLogIndex();
         return this;
     }
@@ -121,5 +101,9 @@ public class ClusterState {
     public ClusterState setLogList(LogList logList) {
         this.logList = logList;
         return this;
+    }
+
+    public int getCompactInterval() {
+        return compactInterval;
     }
 }

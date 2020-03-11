@@ -4,6 +4,7 @@ import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.cluster.message.ProMessage;
 import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.net.Response;
+import com.stormpx.cluster.snapshot.SnapshotContext;
 import com.stormpx.cluster.snapshot.SnapshotReader;
 import com.stormpx.cluster.snapshot.SnapshotWriter;
 import com.stormpx.kit.TopicFilter;
@@ -388,7 +389,7 @@ public class MqttStateService implements StateService {
     }
 
     @Override
-    public void writeSnapshot(SnapshotWriter snapshotWriter) {
+    public void writeSnapshot(SnapshotContext snapshotContext) {
 
     }
 

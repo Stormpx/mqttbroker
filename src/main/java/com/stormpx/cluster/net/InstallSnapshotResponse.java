@@ -1,6 +1,7 @@
 package com.stormpx.cluster.net;
 
 public class InstallSnapshotResponse {
+    private String nodeId;
     private boolean accept;
     private boolean done;
     private int term;
@@ -41,6 +42,15 @@ public class InstallSnapshotResponse {
 
     public InstallSnapshotResponse setNextOffset(int nextOffset) {
         this.nextOffset = nextOffset;
+        return this;
+    }
+
+    public String getNodeId() {
+        return nodeId;
+    }
+
+    public InstallSnapshotResponse setNodeId(String nodeId) {
+        this.nodeId = nodeId;
         return this;
     }
 }

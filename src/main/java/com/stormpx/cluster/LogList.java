@@ -24,6 +24,8 @@ public class LogList {
     public Future<List<LogEntry>> getLog(int start, int end){
         if (start>end)
             return Future.succeededFuture(new ArrayList<>());
+        if (start<firstLogIndex)
+            start=firstLogIndex;
         if (start<1)
             start=1;
         if (start>lastLogIndex)

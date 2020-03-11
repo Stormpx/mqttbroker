@@ -1,6 +1,7 @@
 package com.stormpx.store.rocksdb;
 
 import com.stormpx.cluster.LogEntry;
+import com.stormpx.cluster.snapshot.SnapshotMeta;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -69,13 +70,30 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     }
 
     @Override
-    public void saveSnapshotIndex(int lastIncludeIndex, int lastIncludeTerm) {
+    public void saveSnapshotMeta(SnapshotMeta snapshotMeta) {
+        vertx.executeBlocking(p->{
+            try {
+                rocksDB.put("snapshotMeta".getBytes(),snapshotMeta.encode().getBytes());
+            } catch (RocksDBException e) {
+                logger.error("save snapshotMeta fail",e);
+            }
+        },ar->{
 
+        });
     }
 
     @Override
-    public Future<JsonObject> getSnapshotIndex() {
-        return null;
+    public Future<SnapshotMeta> getSnapshotMeta() {
+        Promise<SnapshotMeta> promise=Promise.promise();
+        vertx.executeBlocking(p->{
+            try {
+                byte[] value = rocksDB.get("snapshotMeta".getBytes());
+                p.tryComplete(value==null?null:SnapshotMeta.decode(Buffer.buffer(value)));
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+        },promise);
+        return promise.future();
     }
 
     @Override

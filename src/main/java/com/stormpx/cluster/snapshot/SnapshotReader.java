@@ -16,13 +16,12 @@ public class SnapshotReader {
 
     private boolean end;
     private int offset;
-    private Buffer currentChunk;
+    private SnapshotChunk snapshotChunk;
 
     public SnapshotReader(Snapshot snapshot,String nodeId,AsyncFile asyncFile) {
         this.snapshot=snapshot;
         this.nodeId=nodeId;
         this.asyncFile = asyncFile;
-        this.currentChunk=Buffer.buffer();
     }
 
     public Future<Buffer> readAll(){
@@ -46,11 +45,11 @@ public class SnapshotReader {
         Promise<Buffer> promise=Promise.promise();
         asyncFile.read(Buffer.buffer(),0,offset,2048,ar->{
             if (ar.succeeded()){
-                this.currentChunk= ar.result();
-                if (this.currentChunk.length()==0){
+                this.snapshotChunk=new SnapshotChunk(offset,ar.result());
+                if (this.snapshotChunk.buffer.length()==0||this.snapshotChunk.buffer.length()<2048){
                     end=true;
                 }
-                promise.tryComplete();
+                promise.tryComplete(snapshotChunk.buffer);
             }else{
                 promise.tryFail(ar.cause());
             }
@@ -69,8 +68,8 @@ public class SnapshotReader {
         return offset;
     }
 
-    public Buffer getCurrentChunk() {
-        return currentChunk.copy();
+    public SnapshotChunk getCurrentChunk() {
+        return snapshotChunk;
     }
 
     public boolean isEnd() {
@@ -80,5 +79,24 @@ public class SnapshotReader {
     public SnapshotReader setOffset(int offset) {
         this.offset = offset;
         return this;
+    }
+
+
+    public class SnapshotChunk {
+        private int offset;
+        private Buffer buffer;
+
+        public SnapshotChunk(int offset, Buffer buffer) {
+            this.offset = offset;
+            this.buffer = buffer;
+        }
+
+        public int getOffset() {
+            return offset;
+        }
+
+        public Buffer getBuffer() {
+            return buffer;
+        }
     }
 }

@@ -25,6 +25,8 @@ public class Snapshot {
 
     private String dir;
 
+    private AsyncFile asyncFile;
+
     private SnapshotContext snapshotContext;
 
     private boolean writeSnapshot;
@@ -53,16 +55,25 @@ public class Snapshot {
                     logger.error("open snapshot failed retry", t);
                     reOpenSnapshot();
                 })
-                .onSuccess(af->promise.tryComplete(af));
+                .onSuccess(af->{
+                    this.asyncFile=af;
+                    promise.tryComplete(af);
+                });
     }
 
-    void readDone(String nodeId){
+    public void readDone(String nodeId){
         snapshotReaderMap.remove(nodeId);
         if (snapshotReaderMap.isEmpty()){
             promise.future()
                     .onSuccess(af->{
+                        if (!snapshotReaderMap.isEmpty())
+                            return;
+                        this.promise=Promise.promise();
+                        this.asyncFile=null;
                         af.close(v->{
-                            this.promise=Promise.promise();
+                            if (v.failed()){
+                                logger.error("file close failed?",v.cause());
+                            }
                             Handler<Void> safetyHandler = this.safetyHandler;
                             if (safetyHandler !=null)
                                 safetyHandler.handle(null);
@@ -82,15 +93,20 @@ public class Snapshot {
             return Future.succeededFuture(reader);
         }
         return promise.future()
-                .map(af->{
+                .compose(af->{
+                    //may closed
+                    if (asyncFile==null)
+                        //closed wait
+                        return reader(nodeId);
+
                     //check again
                     SnapshotReader r = snapshotReaderMap.get(nodeId);
                     if (r!=null){
-                        return r;
+                        return Future.succeededFuture(r);
                     }
                     SnapshotReader snapshotReader = new SnapshotReader(this,nodeId, af);
                     snapshotReaderMap.put(nodeId,snapshotReader);
-                    return snapshotReader;
+                    return Future.succeededFuture(snapshotReader);
                 });
 
     }
@@ -130,6 +146,8 @@ public class Snapshot {
                     });
                 });
             } else {
+                if (ar.succeeded())
+                    promise.tryFail("");
                 drop(snapshotMeta.getNodeId());
                 vertx.fileSystem().delete(path, r -> { });
             }
@@ -137,10 +155,12 @@ public class Snapshot {
 
     }
 
-    public SnapshotContext newWriter(String id, int index, int term){
+    public SnapshotContext createWriterContext(String id, int index, int term){
         writeSnapshot = true;
         SnapshotMeta snapshotMeta = new SnapshotMeta(id, index, term);
         SnapshotContext snapshotContext = new SnapshotContext(snapshotMeta);
+
+        SnapshotContext context = this.snapshotContext;
 
         Future<SnapshotWriter> snapshotWriterFuture = createTempFile()
                 .compose(path -> openFile(path).map(af -> Values2.values(path, af)))
@@ -149,7 +169,7 @@ public class Snapshot {
                     AsyncFile af = value.getTwo();
                     SnapshotWriter snapshotWriter = new SnapshotWriter(snapshotMeta, path,af);
                     handleWriterFuture(snapshotWriter);
-                    SnapshotContext context = this.snapshotContext;
+
                     if (context!=null)
                         context.getWriter().onSuccess(SnapshotWriter::end);
 
@@ -178,6 +198,11 @@ public class Snapshot {
 
     public boolean snapshotting(){
         return writeSnapshot;
+    }
+
+
+    public SnapshotMeta meta() {
+        return snapshotMeta;
     }
 
     public Snapshot snapshotHandler(Handler<SnapshotMeta> snapshotHandler) {

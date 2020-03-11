@@ -8,7 +8,6 @@ public class InstallSnapshotMessage {
     private int lastIncludeIndex;
     private int lastIncludeTerm;
     private boolean done;
-    private int num;
     private int offset;
     private Buffer buffer;
 
@@ -26,11 +25,12 @@ public class InstallSnapshotMessage {
         pos+=4;
         boolean done = buffer.getByte(pos) == 1;
         pos+=1;
-        int num = buffer.getInt(pos);
+        int offset = buffer.getInt(pos);
+        pos+=4;
         Buffer slice = buffer.slice(pos, buffer.length());
         InstallSnapshotMessage installSnapshotMessage = new InstallSnapshotMessage();
         installSnapshotMessage.setTerm(term).setLeaderId(leaderId).setLastIncludeIndex(lastIncludeIndex).setLastIncludeTerm(lastIncludeTerm)
-                .setDone(done).setNum(num).setBuffer(slice);
+                .setDone(done).setOffset(offset).setBuffer(slice);
         return installSnapshotMessage;
     }
 
@@ -46,8 +46,8 @@ public class InstallSnapshotMessage {
                 .appendInt(lastIncludeTerm);
 
         buffer.appendByte((byte) (done?1:0));
-        buffer.appendInt(num);
-        buffer.appendBuffer(buffer);
+        buffer.appendInt(offset);
+        buffer.appendBuffer(this.buffer);
         return buffer;
     }
 
@@ -96,14 +96,6 @@ public class InstallSnapshotMessage {
         return this;
     }
 
-    public int getNum() {
-        return num;
-    }
-
-    public InstallSnapshotMessage setNum(int num) {
-        this.num = num;
-        return this;
-    }
 
     public Buffer getBuffer() {
         return buffer;

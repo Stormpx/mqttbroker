@@ -25,7 +25,7 @@ public class InstallSnapshotRequest {
     }
 
     public void response(boolean accept,boolean done,int offset,int term){
-        InstallSnapshotResponse installSnapshotResponse = new InstallSnapshotResponse().setAccept(accept).setDone(done).setNextOffset(offset).setTerm(term);
+        InstallSnapshotResponse installSnapshotResponse = new InstallSnapshotResponse().setNodeId(rpcMessage.getTargetId()).setAccept(accept).setDone(done).setNextOffset(offset).setTerm(term);
         RpcMessage rpcMessage = new RpcMessage(MessageType.INSTALLSNAPSHOTRESPONSE, this.rpcMessage.getFromId(), this.rpcMessage.getTargetId(), 0,
                 Json.encodeToBuffer(installSnapshotResponse));
         netCluster.tryResponse(netSocket,rpcMessage);

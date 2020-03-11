@@ -13,7 +13,7 @@ public class SnapshotWriter {
     private String path;
     private int offset;
     private AsyncFile asyncFile;
-    private boolean close;
+    private boolean end;
     private Promise<Promise<Void>> promise;
 
     public SnapshotWriter(SnapshotMeta snapshotMeta,String path, AsyncFile asyncFile) {
@@ -36,6 +36,7 @@ public class SnapshotWriter {
     public Future<Void> end(){
 
         Promise<Void> promise=Promise.promise();
+        end=true;
         asyncFile.end(ar->{
             if (ar.succeeded()){
                 this.promise.complete(promise);
@@ -62,5 +63,9 @@ public class SnapshotWriter {
 
     public int getOffset() {
         return offset;
+    }
+
+    public boolean isEnd() {
+        return end;
     }
 }

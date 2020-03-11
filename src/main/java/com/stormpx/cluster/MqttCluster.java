@@ -3,13 +3,11 @@ package com.stormpx.cluster;
 import com.stormpx.Constants;
 import com.stormpx.cluster.message.*;
 import com.stormpx.cluster.net.*;
-import com.stormpx.cluster.snapshot.Snapshot;
-import com.stormpx.cluster.snapshot.SnapshotContext;
-import com.stormpx.cluster.snapshot.SnapshotMeta;
-import com.stormpx.cluster.snapshot.SnapshotWriter;
+import com.stormpx.cluster.snapshot.*;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
@@ -37,7 +35,7 @@ public class MqttCluster {
 
     private LogList logList;
     private Snapshot snapshot;
-    private boolean installingSnapshot;
+    private boolean snapshotInstalling;
 
     private MemberType memberType=MemberType.FOLLOWER;
 
@@ -76,6 +74,7 @@ public class MqttCluster {
                     return this.netCluster.appendEntriesRequestHandler(this::handleAppendEntriesRequest)
                             .appendEntriesResponseHandler(this::handleAppendEntriesResponse)
                             .installSnapshotRequestHandler(this::handleInstallRequestHandler)
+                            .installSnapshotResponseHandler(this::handleInstallResponseHandler)
                             .voteRequestHandler(this::handleVoteRequest)
                             .voteResponseHandler(this::handleVoteResponse)
                             .requestHandler(this::handleRequest)
@@ -88,19 +87,26 @@ public class MqttCluster {
 
     }
 
+
+
+
     private Future<Void> loadSnapshot(){
         Promise<Void> promise=Promise.promise();
-        clusterDataStore.getSnapshotIndex()
-                .compose(json->{
+        clusterDataStore.getSnapshotMeta()
+                .compose(meta->{
+                    String nodeId=clusterState.getId();
                     int lastIndex=0;
                     int lastTerm=0;
-                    if (json!=null){
-                        lastIndex=json.getInteger("");
-                        lastTerm=json.getInteger("");
+                    if (meta!=null){
+                        nodeId=meta.getNodeId();
+                        lastIndex=meta.getIndex();
+                        lastTerm=meta.getTerm();
                     }
-                    this.snapshot=new Snapshot(vertx,clusterState.getId(),lastIndex,lastTerm,config.getString(Constants.SAVE_DIR));
+                    this.snapshot=new Snapshot(vertx,nodeId,lastIndex,lastTerm,config.getString(Constants.SAVE_DIR));
                     snapshot.snapshotHandler(this::tryInstallSnapshot);
                     if (lastIndex!=0){
+                        return snapshot.reader(clusterState.getId())
+                                .compose(reader->stateService.applySnapshot(reader));
 
                     }
                     return Future.succeededFuture();
@@ -123,8 +129,10 @@ public class MqttCluster {
 
                     }
 
-                    return clusterDataStore.getIndex();
+                    return Future.succeededFuture();
                 })
+                .compose(v->loadSnapshot())
+                .compose(v->clusterDataStore.getIndex())
                 .compose(json->{
                     int lastLogIndex=0;
                     int firstLogIndex=0;
@@ -170,27 +178,36 @@ public class MqttCluster {
 
     private void tryInstallSnapshot(SnapshotMeta meta){
         int index = meta.getIndex();
-        int term = meta.getTerm();
+        logList.truncatePrefix(index);
+        clusterDataStore.saveSnapshotMeta(meta);
         if (!meta.getNodeId().equals(clusterState.getId())){
             // install snapshot
-            installingSnapshot=true;
+            snapshotInstalling =true;
             snapshot.reader(clusterState.getId())
                 .onFailure(t-> {
                     logger.error("get snapshot reader failed",t);
-                    installingSnapshot=false;
+                    snapshotInstalling =false;
                 })
                 .onSuccess(reader->stateService.applySnapshot(reader).onComplete(ar->{
                     if (ar.failed())
                         logger.error("apply snapshot failed",ar.cause());
-                    installingSnapshot=false;
+                    snapshotInstalling =false;
 
                     reader.done();
 
                 }))
             ;
         }
-        logList.truncatePrefix(index);
-        clusterDataStore.saveSnapshotIndex(index,term);
+    }
+
+    private void logCompact(){
+        if (clusterState.getLastApplied()-snapshot.meta().getIndex()>clusterState.getCompactInterval()){
+            //compact
+            logger.debug("create new snapshot index:{} term:{}",clusterState.getLastApplied(),clusterState.getCurrentTerm());
+            SnapshotContext writerContext = snapshot.createWriterContext(clusterState.getId(), clusterState.getLastApplied(), clusterState.getCurrentTerm());
+            stateService.writeSnapshot(writerContext);
+        }
+
     }
 
     private void handleRequest(Request request){
@@ -231,7 +248,10 @@ public class MqttCluster {
                 snapshotContext.getWriter()
                         .onSuccess(snapshotWriter->{
                             logger.debug("receive snapshot chunk current offset:{}  offset:{} write ",snapshotWriter.getOffset(),installSnapshotMessage.getOffset());
-                            boolean accept=false;
+                            if (snapshotWriter.isEnd()){
+                                installSnapshotRequest.response(true,false,installSnapshotMessage.getOffset(),clusterState.getCurrentTerm());
+                                return;
+                            }
                             if (installSnapshotMessage.getOffset()==snapshotWriter.getOffset()){
 
                                 snapshotWriter.write(installSnapshotMessage.getBuffer());
@@ -239,10 +259,8 @@ public class MqttCluster {
                                     snapshotWriterDone(installSnapshotRequest,snapshotWriter);
                                     return;
                                 }
-                                accept=true;
-
                             }
-                            installSnapshotRequest.response(accept,false,snapshotWriter.getOffset(),clusterState.getCurrentTerm());
+                            installSnapshotRequest.response(true,false,snapshotWriter.getOffset(),clusterState.getCurrentTerm());
                         });
 
             }else{
@@ -250,7 +268,7 @@ public class MqttCluster {
                 logger.debug("snapshotting id:{} requset leaderId:{}",snapshotContext.getSnapshotMeta().getNodeId(),installSnapshotMessage.getLeaderId());
                 snapshotContext.getWriter()
                         .onSuccess(snapshotWriter->{
-                            if (installSnapshotMessage.getLastIncludeIndex()<=snapshotWriter.getSnapshotMeta().getIndex()){
+                            if (installSnapshotMessage.getLastIncludeIndex()<snapshotWriter.getSnapshotMeta().getIndex()){
                                 installSnapshotRequest.response(false,false,0,clusterState.getCurrentTerm());
                                 return;
                             }
@@ -270,13 +288,14 @@ public class MqttCluster {
 
     private void startWriter(InstallSnapshotRequest installSnapshotRequest){
         InstallSnapshotMessage installSnapshotMessage = installSnapshotRequest.getInstallSnapshotMessage();
-        snapshot.newWriter(installSnapshotMessage.getLeaderId(), installSnapshotMessage.getLastIncludeIndex(), installSnapshotMessage.getTerm())
+        snapshot.createWriterContext(installSnapshotMessage.getLeaderId(), installSnapshotMessage.getLastIncludeIndex(), installSnapshotMessage.getTerm())
                 .getWriter()
                 .onFailure(t -> installSnapshotRequest.response(false,false, 0, clusterState.getCurrentTerm()))
                 .onSuccess(writer -> {
                     writer.write(installSnapshotMessage.getBuffer());
                     if (installSnapshotMessage.isDone()){
                         snapshotWriterDone(installSnapshotRequest,writer);
+                        return;
                     }
                     installSnapshotRequest.response(true,false,writer.getOffset(),clusterState.getCurrentTerm());
 
@@ -295,6 +314,44 @@ public class MqttCluster {
                 });
     }
 
+
+
+    private void handleInstallResponseHandler(InstallSnapshotResponse installSnapshotResponse) {
+        if (logger.isDebugEnabled())
+            logger.debug("install snapshot response ", Json.encode(installSnapshotResponse));
+
+        String nodeId = installSnapshotResponse.getNodeId();
+        ClusterNode clusterNode = netCluster.getNode(nodeId);
+        NodeState nodeState = clusterNode.state();
+        if (installSnapshotResponse.isAccept()){
+
+            if (installSnapshotResponse.isDone()){
+                snapshot.readDone(nodeId);
+                if (nodeState.getMatchIndex()<snapshot.meta().getIndex())
+                    nodeState.setMatchIndex(snapshot.meta().getIndex()+1);
+
+                nodeState.setNextIndex(snapshot.meta().getIndex()+1);
+                return;
+            }
+            snapshot.reader(nodeId)
+                    .onFailure(t->logger.error("get snapshot reader failed",t))
+                    .onSuccess(reader->{
+                        reader.setOffset(installSnapshotResponse.getNextOffset());
+                        sendChunk(clusterNode,reader);
+                    });
+
+        }else{
+            if (installSnapshotResponse.getTerm()>clusterState.getCurrentTerm()){
+                becomeFollower(installSnapshotResponse.getTerm(),true);
+            }else{
+                nodeState.setNextIndex(snapshot.meta().getIndex()+1);
+            }
+            snapshot.readDone(nodeId);
+
+
+        }
+
+    }
 
 
 
@@ -384,9 +441,11 @@ public class MqttCluster {
         applyCommitIndex()
                 .onFailure(t->logger.error("applyCommitIndex failed",t))
                 .onSuccess(v->{
+
                     fireReadIndex();
                     stateService.firePendingEvent(appendEntriesMessage.getLeaderId());
                     logList.releasePrefix(clusterState.getLastApplied()-1);
+
                 })
                 .onComplete(v->saveSate());
 
@@ -480,8 +539,8 @@ public class MqttCluster {
                     try {
                         boolean voteGranted=false;
                         if ((voteMessage.getTerm()>=clusterState.getCurrentTerm()&&clusterState.getVotedFor()==null)
-                                &&((logList.getLastLogIndex()<=0||lastLog.getTerm()<=voteMessage.getLastLogTerm())||
-                                (lastLog.getTerm()==voteMessage.getLastLogTerm()&&voteMessage.getLastLogIndex()>=logList.getLastLogIndex()))){
+                                &&((logList.getLastLogIndex()<=0||lastLog.getTerm()<voteMessage.getLastLogTerm())
+                                ||(lastLog.getTerm()==voteMessage.getLastLogTerm()&&voteMessage.getLastLogIndex()>=lastLog.getIndex()))){
 
                             clusterState.setVotedFor(voteMessage.getCandidateId());
                             becomeFollower(voteMessage.getTerm(),true);
@@ -562,6 +621,9 @@ public class MqttCluster {
 
 
     private Future<Void> applyCommitIndex(){
+        if (snapshotInstalling){
+            return Future.succeededFuture();
+        }
         Promise<Void> promise=Promise.promise();
         int lastApplied = clusterState.getLastApplied();
         int commitIndex = clusterState.getCommitIndex();
@@ -648,6 +710,13 @@ public class MqttCluster {
     }
 
     private void becomeFollower(int term,boolean save){
+        if (this.memberType==MemberType.LEADER){
+            netCluster.nodes()
+                    .forEach(cn->{
+                        snapshot.readDone(cn.id());
+                    });
+
+        }
         this.memberType=MemberType.FOLLOWER;
         clusterState.setCurrentTerm(term);
         clusterState.setVotedFor(null);
@@ -739,8 +808,14 @@ public class MqttCluster {
                 netCluster.request(clusterNode.id(),appendEntriesMessage);
             }else {
                 int nextIndex = nodeState.getNextIndex();
-                if (logList.getFirstLogIndex()>=nextIndex){
+                if (logList.getFirstLogIndex()!=0&&logList.getFirstLogIndex()>nextIndex){
                     //sanpshot
+                    snapshot.reader(clusterNode.id())
+                            .onFailure(t->logger.error("get snapshot reader failed",t))
+                            .onSuccess(reader->{
+                                sendChunk(clusterNode,reader);
+                            });
+                    return;
                 }
                 int endIndex=(logList.getLastLogIndex() + 1)-nextIndex>100?nextIndex+100:(logList.getLastLogIndex() + 1);
 
@@ -756,9 +831,14 @@ public class MqttCluster {
                                     appendEntriesMessage.setPrevLogIndex(0);
                                     appendEntriesMessage.setPrevLogTerm(0);
                                 }else {
-                                    LogEntry logEntry = logs.remove(0);
-                                    appendEntriesMessage.setPrevLogIndex(logEntry.getIndex());
-                                    appendEntriesMessage.setPrevLogTerm(logEntry.getTerm());
+                                    if (nextIndex==logList.getFirstLogIndex()){
+                                        appendEntriesMessage.setPrevLogIndex(snapshot.meta().getIndex());
+                                        appendEntriesMessage.setPrevLogTerm(snapshot.meta().getTerm());
+                                    }else {
+                                        LogEntry logEntry = logs.remove(0);
+                                        appendEntriesMessage.setPrevLogIndex(logEntry.getIndex());
+                                        appendEntriesMessage.setPrevLogTerm(logEntry.getTerm());
+                                    }
                                 }
                                 netCluster.request(clusterNode.id(),appendEntriesMessage);
                             } catch (Exception e) {
@@ -772,6 +852,35 @@ public class MqttCluster {
 
     }
 
+    private void sendChunk(ClusterNode clusterNode,SnapshotReader snapshotReader){
+
+        SnapshotMeta meta = snapshot.meta();
+        InstallSnapshotMessage installSnapshotMessage=new InstallSnapshotMessage()
+                .setTerm(clusterState.getCurrentTerm())
+                .setLeaderId(clusterState.getId())
+                .setLastIncludeIndex(meta.getIndex())
+                .setLastIncludeTerm(meta.getTerm())
+                .setOffset(snapshotReader.getOffset());
+
+        SnapshotReader.SnapshotChunk currentChunk = snapshotReader.getCurrentChunk();
+        if (currentChunk!=null&&(snapshotReader.isEnd()||currentChunk.getOffset()==snapshotReader.getOffset())){
+            installSnapshotMessage
+                    .setDone(snapshotReader.isEnd())
+                    .setBuffer(currentChunk.getBuffer());
+            netCluster.request(clusterNode.id(),installSnapshotMessage);
+            return;
+        }
+        snapshotReader.nextChunk()
+                .onFailure(tt->logger.error("read offset:{} chunk failed",tt,snapshotReader.getOffset()))
+                .onSuccess(buffer->{
+                    installSnapshotMessage
+                            .setDone(snapshotReader.isEnd())
+                            .setBuffer(buffer);
+                    netCluster.request(clusterNode.id(),installSnapshotMessage);
+                });
+
+
+    }
 
 
     public Future<Integer> readIndex(){
@@ -801,14 +910,6 @@ public class MqttCluster {
             }
 
             return pendingReadState.promise.future();
-           /* ReadState readState = new ReadState(id);
-            readState.setTimer();
-
-            readIndexMap.put(id,readState);
-
-            netCluster.requestReadIndex(leaderId,id);
-
-            return readState.promise.future();*/
         }
 
     }

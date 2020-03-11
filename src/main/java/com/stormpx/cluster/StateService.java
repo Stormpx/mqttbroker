@@ -4,6 +4,7 @@ package com.stormpx.cluster;
 import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.net.Request;
 import com.stormpx.cluster.net.Response;
+import com.stormpx.cluster.snapshot.SnapshotContext;
 import com.stormpx.cluster.snapshot.SnapshotReader;
 import com.stormpx.cluster.snapshot.SnapshotWriter;
 import io.vertx.core.Future;
@@ -27,6 +28,6 @@ public interface StateService {
 
     Future<Void> applySnapshot(SnapshotReader snapshotReader);
 
-    void writeSnapshot(SnapshotWriter snapshotWriter);
+    void writeSnapshot(SnapshotContext snapshotContext);
 
 }

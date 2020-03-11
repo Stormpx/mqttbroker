@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class ClusterCodecTest {
 
@@ -72,6 +73,30 @@ public class ClusterCodecTest {
         Assertions.assertEquals(appendEntriesMessage1.getLeaderId(),appendEntriesMessage.getLeaderId());
         Assertions.assertEquals(appendEntriesMessage1.getLeaderCommit(),appendEntriesMessage.getLeaderCommit());
         Assertions.assertEquals(appendEntriesMessage1.getEntries(),appendEntriesMessage.getEntries());
+
+    }
+
+    @Test
+    public void installSnapshotMessageTest(){
+
+        String s=".spleh A+lrtC/dmC .thgis fo tuo si ti semitemos ,etihw si txet nehw sa drah kooL .tseretni wohs dluohs uoy ecalp a si ,dessecorp si xat hctuD erehw esac ehT .sedih tseuq fo txen eht erehw si ,deificeps era segaugnal cificeps-niamod tcudorp ehT";
+
+        System.out.println(new StringBuilder(s).reverse().toString());
+
+        InstallSnapshotMessage installSnapshotMessage = new InstallSnapshotMessage().setTerm(1)
+                .setLeaderId("weqwe")
+                .setLastIncludeTerm(2).setLastIncludeTerm(1).setOffset(23).setDone(true).setBuffer(Buffer.buffer("awewqew"));
+        Buffer encode = installSnapshotMessage.encode();
+        InstallSnapshotMessage message = InstallSnapshotMessage.decode(encode);
+
+        Assertions.assertEquals(message.getLeaderId(),installSnapshotMessage.getLeaderId());
+        Assertions.assertEquals(message.getTerm(),installSnapshotMessage.getTerm());
+        Assertions.assertEquals(message.getLastIncludeIndex(),installSnapshotMessage.getLastIncludeIndex());
+        Assertions.assertEquals(message.getLastIncludeTerm(),installSnapshotMessage.getLastIncludeTerm());
+        Assertions.assertEquals(message.getOffset(),installSnapshotMessage.getOffset());
+        Assertions.assertEquals(message.isDone(),installSnapshotMessage.isDone());
+        Assertions.assertEquals(message.getBuffer(),installSnapshotMessage.getBuffer());
+
 
     }
 }
