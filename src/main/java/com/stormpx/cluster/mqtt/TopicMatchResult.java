@@ -1,4 +1,4 @@
-package com.stormpx.cluster;
+package com.stormpx.cluster.mqtt;
 
 import com.stormpx.kit.TopicFilter;
 import io.vertx.core.buffer.Buffer;

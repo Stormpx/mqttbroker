@@ -1,4 +1,4 @@
-package com.stormpx.cluster;
+package com.stormpx.cluster.mqtt;
 
 import com.stormpx.store.SessionObj;
 import io.vertx.core.buffer.Buffer;

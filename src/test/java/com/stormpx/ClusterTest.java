@@ -1,6 +1,9 @@
 package com.stormpx;
 
 import com.stormpx.cluster.*;
+import com.stormpx.cluster.mqtt.ClusterClient;
+import com.stormpx.cluster.MqttCluster;
+import com.stormpx.cluster.mqtt.MqttStateService;
 import com.stormpx.store.ClusterDataStore;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.SessionStore;
@@ -52,7 +55,7 @@ public class ClusterTest {
         SessionStore sessionStore=new RocksDBSessionStore(vertx,dir);
         ClusterDataStore clusterDataStore=new RocksDBClusterDataStore(vertx,dir,nodeId);
 
-        MqttStateService stateService= new MqttStateService(vertx,sessionStore);
+        MqttStateService stateService= new MqttStateService(vertx);
         ClusterClient clusterClient=new ClusterClient(vertx, stateService,clusterDataStore);
         new MqttCluster(vertx,json,clusterDataStore,stateService,clusterClient)
             .start()

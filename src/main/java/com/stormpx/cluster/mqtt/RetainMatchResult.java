@@ -1,4 +1,4 @@
-package com.stormpx.cluster;
+package com.stormpx.cluster.mqtt;
 
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class RetainMatchResult {
-    public final static RetainMatchReslutCodec CODEC=new RetainMatchReslutCodec();
+    public final static RetainMatchResultCodec CODEC=new RetainMatchResultCodec();
 
     private Map<String, Set<String>> matchMap;
 
@@ -20,7 +20,7 @@ public class RetainMatchResult {
         return this;
     }
 
-    private static class RetainMatchReslutCodec implements MessageCodec<RetainMatchResult, RetainMatchResult> {
+    private static class RetainMatchResultCodec implements MessageCodec<RetainMatchResult, RetainMatchResult> {
 
 
         @Override

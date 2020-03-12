@@ -1,13 +1,15 @@
 package com.stormpx.cluster;
 
 import com.stormpx.cluster.message.ActionLog;
+import com.stormpx.cluster.mqtt.RetainMatchResult;
+import com.stormpx.cluster.mqtt.SessionResult;
+import com.stormpx.cluster.mqtt.TopicMatchResult;
 import com.stormpx.kit.UnSafeJsonObject;
 import com.stormpx.store.MessageObj;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.json.JsonArray;

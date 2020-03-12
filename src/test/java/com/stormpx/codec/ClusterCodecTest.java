@@ -2,6 +2,7 @@ package com.stormpx.codec;
 
 import com.stormpx.cluster.LogEntry;
 import com.stormpx.cluster.message.*;
+import com.stormpx.cluster.mqtt.MqttMetaData;
 import com.stormpx.cluster.net.SocketHandler;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class ClusterCodecTest {
@@ -78,7 +80,6 @@ public class ClusterCodecTest {
 
     @Test
     public void installSnapshotMessageTest(){
-
         String s=".spleh A+lrtC/dmC .thgis fo tuo si ti semitemos ,etihw si txet nehw sa drah kooL .tseretni wohs dluohs uoy ecalp a si ,dessecorp si xat hctuD erehw esac ehT .sedih tseuq fo txen eht erehw si ,deificeps era segaugnal cificeps-niamod tcudorp ehT";
 
         System.out.println(new StringBuilder(s).reverse().toString());
@@ -99,4 +100,53 @@ public class ClusterCodecTest {
 
 
     }
+
+    @Test
+    public void metaDataTest(){
+        MqttMetaData mqttMetaData = new MqttMetaData();
+        mqttMetaData.addSubscription("qwe",Arrays.asList("2312","testa","31532","testga","aegae","afweafew"));
+        mqttMetaData.addSubscription("faefw",Arrays.asList("qewq","gesgs","gesa","gesa","dwa","geas","gsgse","grdshgd"));
+
+        for (int i = 0; i < 3000; i++) {
+            mqttMetaData.setExecute("node1",i);
+        }
+        for (int i = 0; i < 50000; i++) {
+            mqttMetaData.setExecute("node2",i);
+        }
+        mqttMetaData.putRetain("qwe","fawf");
+        mqttMetaData.putRetain("fafw","asdw");
+        mqttMetaData.putRetain("gesag","ewa");
+        mqttMetaData.putRetain("sage","weq");
+        mqttMetaData.putRetain("gesag","hgrds");
+
+        mqttMetaData.saveSession("node1","client1");
+        mqttMetaData.saveSession("node2","client1");
+        mqttMetaData.saveSession("node3","client1");
+        mqttMetaData.saveSession("node4","client1");
+        mqttMetaData.saveSession("node5","client1");
+
+        mqttMetaData.saveSession("node1","client0");
+
+        mqttMetaData.saveMessage("node1","message1");
+        mqttMetaData.saveMessage("node2","message1");
+        mqttMetaData.saveMessage("node3","message1");
+        mqttMetaData.saveMessage("node4","message1");
+        mqttMetaData.saveMessage("node5","message1");
+
+        mqttMetaData.saveMessage("node1","message0");
+
+        Buffer buffer=Buffer.buffer().appendBuffer(mqttMetaData.encodeSubscribe())
+                .appendBuffer(mqttMetaData.encodeRequestId())
+                .appendBuffer(mqttMetaData.encodeIdIndex())
+                .appendBuffer(mqttMetaData.encodeSessionIndex())
+                .appendBuffer(mqttMetaData.encodeRetain());
+
+        MqttMetaData metaData = new MqttMetaData();
+        metaData.decode(buffer);
+
+        Assertions.assertEquals(mqttMetaData,metaData);
+
+
+    }
+
 }

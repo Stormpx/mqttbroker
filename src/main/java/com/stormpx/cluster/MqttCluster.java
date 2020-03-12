@@ -2,6 +2,7 @@ package com.stormpx.cluster;
 
 import com.stormpx.Constants;
 import com.stormpx.cluster.message.*;
+import com.stormpx.cluster.mqtt.ClusterClient;
 import com.stormpx.cluster.net.*;
 import com.stormpx.cluster.snapshot.*;
 import com.stormpx.store.ClusterDataStore;
@@ -117,6 +118,48 @@ public class MqttCluster {
         return promise.future();
     }
 
+    public Future<Void> loadLogs(){
+        Promise<Void> promise=Promise.promise();
+        clusterDataStore.getIndex()
+                .onFailure(promise::tryFail)
+                .onSuccess(json->{
+                    int lastLogIndex=snapshot.meta().getIndex();
+                    int firstLogIndex=0;
+                    if (json!=null){
+                        firstLogIndex=json.getInteger("firstIndex");
+                        lastLogIndex=json.getInteger("lastIndex");
+                    }
+                    int finalFirstLogIndex = firstLogIndex;
+                    int finalLastLogIndex = lastLogIndex;
+                    clusterDataStore.getLogs(firstLogIndex,lastLogIndex+1)
+                            .onFailure(promise::tryFail)
+                            .onSuccess(logEntryList->{
+                                if (logEntryList!=null){
+                                    int commitIndex = clusterState.getCommitIndex();
+                                    logEntryList.sort(Comparator.comparingInt(LogEntry::getIndex));
+                                    List<LogEntry> cacheList=new ArrayList<>();
+                                    for (LogEntry logEntry : logEntryList) {
+                                        if (logEntry.getIndex()<=commitIndex) {
+                                            stateService.applyLog(logEntry);
+                                        }
+                                        if (logEntry.getIndex()>=commitIndex){
+                                            cacheList.add(logEntry);
+                                        }
+                                    }
+                                    clusterState.setLastApplied(commitIndex);
+                                    this.logList=new LogList(clusterDataStore, finalFirstLogIndex, finalLastLogIndex);
+                                    for (LogEntry logEntry : cacheList) {
+                                        this.logList.setLog(logEntry,false);
+                                    }
+                                    clusterState.setLogList(logList);
+                                }
+
+                            });
+                });
+
+        return promise.future();
+    }
+
     private Future<ClusterState> loadClusterState(String id) {
         return clusterDataStore.getState()
                 .compose(state->{
@@ -191,6 +234,8 @@ public class MqttCluster {
                 .onSuccess(reader->stateService.applySnapshot(reader).onComplete(ar->{
                     if (ar.failed())
                         logger.error("apply snapshot failed",ar.cause());
+
+
                     snapshotInstalling =false;
 
                     reader.done();
@@ -201,7 +246,7 @@ public class MqttCluster {
     }
 
     private void logCompact(){
-        if (clusterState.getLastApplied()-snapshot.meta().getIndex()>clusterState.getCompactInterval()){
+        if (!snapshot.snapshotting()&&clusterState.getLastApplied()-snapshot.meta().getIndex()>clusterState.getCompactInterval()){
             //compact
             logger.debug("create new snapshot index:{} term:{}",clusterState.getLastApplied(),clusterState.getCurrentTerm());
             SnapshotContext writerContext = snapshot.createWriterContext(clusterState.getId(), clusterState.getLastApplied(), clusterState.getCurrentTerm());
@@ -635,6 +680,7 @@ public class MqttCluster {
                         LogEntry logEntry = list.get(list.size()-1);
                         clusterState.setLastApplied(logEntry.getIndex());
                     }
+                    logCompact();
                     promise.complete();
                 });
         return promise.future();

@@ -32,6 +32,7 @@ public class SnapshotReader {
                 .onSuccess(b->{
                     buffer.appendBuffer(b);
                     if (!end){
+                        offset+=b.length();
                         readAll().onSuccess(buffer::appendBuffer).setHandler(promise);
                     }else{
                         promise.tryComplete(buffer);

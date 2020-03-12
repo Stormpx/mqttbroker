@@ -1,19 +1,16 @@
 package com.stormpx;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
 import com.stormpx.cluster.ClusterVerticle;
-import com.stormpx.cluster.RetainMatchResult;
-import com.stormpx.cluster.SessionResult;
-import com.stormpx.cluster.TopicMatchResult;
+import com.stormpx.cluster.mqtt.RetainMatchResult;
+import com.stormpx.cluster.mqtt.SessionResult;
+import com.stormpx.cluster.mqtt.TopicMatchResult;
 import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.kit.UnSafeJsonObject;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.SessionObj;
-import io.netty.handler.logging.LogLevel;
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
 import io.vertx.config.ConfigStoreOptions;

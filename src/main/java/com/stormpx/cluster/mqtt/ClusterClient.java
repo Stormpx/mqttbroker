@@ -1,5 +1,7 @@
-package com.stormpx.cluster;
+package com.stormpx.cluster.mqtt;
 
+import com.stormpx.cluster.ClusterNode;
+import com.stormpx.cluster.MqttCluster;
 import com.stormpx.cluster.message.*;
 import com.stormpx.cluster.net.NetCluster;
 import com.stormpx.cluster.net.Response;
