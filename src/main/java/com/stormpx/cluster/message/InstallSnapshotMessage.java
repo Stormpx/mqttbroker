@@ -27,7 +27,7 @@ public class InstallSnapshotMessage {
         pos+=1;
         int offset = buffer.getInt(pos);
         pos+=4;
-        Buffer slice = buffer.slice(pos, buffer.length());
+        Buffer slice = buffer.getBuffer(pos, buffer.length());
         InstallSnapshotMessage installSnapshotMessage = new InstallSnapshotMessage();
         installSnapshotMessage.setTerm(term).setLeaderId(leaderId).setLastIncludeIndex(lastIncludeIndex).setLastIncludeTerm(lastIncludeTerm)
                 .setDone(done).setOffset(offset).setBuffer(slice);

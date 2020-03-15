@@ -1,7 +1,7 @@
 package com.stormpx.cluster;
 
 import com.stormpx.Constants;
-import com.stormpx.cluster.message.ProMessage;
+import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.mqtt.*;
 import com.stormpx.kit.TopicUtil;
 import com.stormpx.store.ClusterDataStore;
@@ -41,6 +41,7 @@ public class ClusterVerticle extends AbstractVerticle {
         String id = cluster.getString("id");
         Integer port = cluster.getInteger("port");
         JsonObject nodes = cluster.getJsonObject("nodes");
+        cluster.put(Constants.SAVE_DIR,saveDir);
         //cluster enable
         this.clusterDataStore=new RocksDBClusterDataStore(vertx,saveDir,id);
         this.stateService=new MqttStateService(vertx);
@@ -60,11 +61,10 @@ public class ClusterVerticle extends AbstractVerticle {
         consumer.sessionTakenoverHandler(body->{
             clusterClient.takenOverSession(body);
         }).proposalHandler(actionLog->{
-            clusterClient.proposal(clusterClient.nextRequestId(),actionLog);
+            clusterClient.proposal(actionLog);
         }).sessionRequestHandler(message->{
             String clientId = message.body();
             stateService.fetchSessionIndexWithReadIndex(clientId)
-
                     .onSuccess(set->{
                         if (set.isEmpty()) {
                             message.reply(new SessionResult().setLocal(false));
@@ -141,7 +141,7 @@ public class ClusterVerticle extends AbstractVerticle {
             JsonObject json = unSafe.getJsonObject();
             String nodeId = json.getString("nodeId");
             JsonObject body = json.getJsonObject("body");
-            mqttCluster.net().request(nodeId, clusterClient.nextRequestId(), new ProMessage("/dispatcher", body).encode());
+            mqttCluster.net().request(nodeId, new RpcMessage("/dispatcher",clusterClient.nextRequestId(), body).encode());
         });
 
 

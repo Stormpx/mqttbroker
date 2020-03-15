@@ -22,6 +22,7 @@ public class ClusterState {
 
     public ClusterState() {
         ThreadLocalRandom localRandom = ThreadLocalRandom.current();
+        //FIXME debug
         this.compactInterval = localRandom.nextInt(8500, 12500);
     }
 

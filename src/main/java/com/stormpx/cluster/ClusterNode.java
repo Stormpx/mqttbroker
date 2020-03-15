@@ -1,9 +1,6 @@
 package com.stormpx.cluster;
 
-import com.stormpx.cluster.message.AppendEntriesMessage;
-import com.stormpx.cluster.message.RpcMessage;
-import com.stormpx.cluster.message.VoteMessage;
-import com.stormpx.cluster.net.*;
+import com.stormpx.cluster.message.ClusterMessage;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 
@@ -25,7 +22,7 @@ public interface ClusterNode {
 
     void send(Buffer buffer);
 
-    ClusterNode messageHandler(Handler<RpcMessage> handler);
+    ClusterNode messageHandler(Handler<ClusterMessage> handler);
 
 
 }

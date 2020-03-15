@@ -28,7 +28,7 @@ public class NetClusterImpl implements NetCluster {
     private Set<NetSocket> netSockets;
     private Handler<VoteRequest> voteRequestHandler;
     private Handler<AppendEntriesRequest> appendEntriesRequestHandler;
-    private Handler<Request> clusterRequestHandler;
+    private Handler<ClientRequest> clusterRequestHandler;
     private Handler<ReadIndexRequest> readIndexRequestHandler;
     private Handler<VoteResponse> voteResponseHandler;
     private Handler<AppendEntriesResponse> appendEntriesResponseHandler;
@@ -93,38 +93,38 @@ public class NetClusterImpl implements NetCluster {
     }
 
 
-    private void callHandler(NetSocket netSocket, RpcMessage rpcMessage){
-        String targetId = rpcMessage.getTargetId();
+    private void callHandler(NetSocket netSocket, ClusterMessage clusterMessage){
+        String targetId = clusterMessage.getTargetId();
         if (!targetId.equals(id)){
-            proxy(rpcMessage);
+            proxy(clusterMessage);
             return;
         }
         if (logger.isDebugEnabled())
-            logger.debug("receive messageType:{} targetId:{} fromId:{} requestId:{} payload: {}",
-                    rpcMessage.getMessageType(),rpcMessage.getTargetId(),rpcMessage.getFromId(),rpcMessage.getRequestId(),rpcMessage.getBuffer());
+            logger.debug("receive messageType:{} targetId:{} fromId:{} payload: {}",
+                    clusterMessage.getMessageType(), clusterMessage.getTargetId(), clusterMessage.getFromId(),clusterMessage.getBuffer());
 
-        switch (rpcMessage.getMessageType()){
+        switch (clusterMessage.getMessageType()){
 
             case APPENDENTRIESREQUEST:
-                AppendEntriesRequest appendEntriesRequest = new AppendEntriesRequest(netSocket, this, rpcMessage);
+                AppendEntriesRequest appendEntriesRequest = new AppendEntriesRequest(netSocket, this, clusterMessage);
                 Handler<AppendEntriesRequest> handler = this.appendEntriesRequestHandler;
                 if (handler!=null)
                     handler.handle(appendEntriesRequest);
                 break;
             case VOTEREQUEST:
-                VoteRequest voteRequest = new VoteRequest(netSocket, this, rpcMessage);
+                VoteRequest voteRequest = new VoteRequest(netSocket, this, clusterMessage);
                 Handler<VoteRequest> voteRequestHandler = this.voteRequestHandler;
                 if (voteRequestHandler!=null)
                     voteRequestHandler.handle(voteRequest);
                 break;
             case REQUEST:
-                Request request = new Request(netSocket, this, rpcMessage);
-                Handler<Request> clusterRequestHandler = this.clusterRequestHandler;
+                ClientRequest request = new ClientRequest(netSocket, this, clusterMessage);
+                Handler<ClientRequest> clusterRequestHandler = this.clusterRequestHandler;
                 if (clusterRequestHandler!=null)
                     clusterRequestHandler.handle(request);
                 break;
             case READINDEXREQUEST:
-                ReadIndexRequest readIndexRequest = new ReadIndexRequest(netSocket, this,rpcMessage);
+                ReadIndexRequest readIndexRequest = new ReadIndexRequest(netSocket, this, clusterMessage);
                 Handler<ReadIndexRequest> readIndexRequestHandler = this.readIndexRequestHandler;
                 if (readIndexRequestHandler!=null)
                     readIndexRequestHandler.handle(readIndexRequest);
@@ -133,17 +133,18 @@ public class NetClusterImpl implements NetCluster {
             case APPENDENTRIESRESPONSE:
                 Handler<AppendEntriesResponse> appendEntriesResponseHandler = this.appendEntriesResponseHandler;
                 if (appendEntriesResponseHandler!=null)
-                    appendEntriesResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),AppendEntriesResponse.class).setNodeId(rpcMessage.getFromId()));
+                    appendEntriesResponseHandler.handle(Json.decodeValue(clusterMessage.getBuffer(),AppendEntriesResponse.class).setNodeId(clusterMessage.getFromId()));
                 break;
             case VOTERESPONSE:
                 Handler<VoteResponse> voteResponseHandler = this.voteResponseHandler;
                 if (voteResponseHandler!=null)
-                    voteResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),VoteResponse.class).setNodeId(rpcMessage.getFromId()));
+                    voteResponseHandler.handle(Json.decodeValue(clusterMessage.getBuffer(),VoteResponse.class).setNodeId(clusterMessage.getFromId()));
                 break;
             case RESPONSE:
-                Buffer buffer = rpcMessage.getBuffer();
-                Buffer payload = buffer.slice(1, buffer.length());
-                Response response = new Response().setSuccess(buffer.getByte(0) == 1).setPayload(payload).setRequestId(rpcMessage.getRequestId()).setNodeId(rpcMessage.getFromId());
+                Buffer buffer = clusterMessage.getBuffer();
+                int requestId = buffer.getInt(1);
+                Buffer payload = buffer.slice(5, buffer.length());
+                Response response = new Response().setSuccess(buffer.getByte(0) == 1).setPayload(payload).setRequestId(requestId).setNodeId(clusterMessage.getFromId());
                 Handler<Response> responseHandler = this.responseHandler;
                 if (responseHandler!=null)
                     responseHandler.handle(response);
@@ -151,26 +152,26 @@ public class NetClusterImpl implements NetCluster {
             case READINDEXRESPONSE:
                 Handler<ReadIndexResponse> readIndexResponseHandler = this.readIndexResponseHandler;
                 if (readIndexResponseHandler!=null)
-                    readIndexResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),ReadIndexResponse.class));
+                    readIndexResponseHandler.handle(Json.decodeValue(clusterMessage.getBuffer(),ReadIndexResponse.class));
                 break;
             case INSTALLSNAPSHOTREQUEST:
                 Handler<InstallSnapshotRequest> installSnapshotRequestHandler = this.installSnapshotRequestHandler;
                 if (installSnapshotRequestHandler!=null)
-                    installSnapshotRequestHandler.handle(new InstallSnapshotRequest(netSocket,this,rpcMessage));
+                    installSnapshotRequestHandler.handle(new InstallSnapshotRequest(netSocket,this, clusterMessage));
                 break;
             case INSTALLSNAPSHOTRESPONSE:
                 Handler<InstallSnapshotResponse> installSnapshotResponseHandler = this.installSnapshotResponseHandler;
                 if (installSnapshotResponseHandler!=null)
-                    installSnapshotResponseHandler.handle(Json.decodeValue(rpcMessage.getBuffer(),InstallSnapshotResponse.class));
+                    installSnapshotResponseHandler.handle(Json.decodeValue(clusterMessage.getBuffer(),InstallSnapshotResponse.class));
                 break;
         }
     }
 
-    private void proxy(RpcMessage rpcMessage) {
-        String targetId = rpcMessage.getTargetId();
+    private void proxy(ClusterMessage clusterMessage) {
+        String targetId = clusterMessage.getTargetId();
         ClusterNode clusterNode = nodeMap.get(targetId);
         if (clusterNode!=null){
-            clusterNode.send(rpcMessage.encode());
+            clusterNode.send(clusterMessage.encode());
         }
     }
 
@@ -187,7 +188,7 @@ public class NetClusterImpl implements NetCluster {
     }
 
     @Override
-    public NetCluster requestHandler(Handler<Request> handler) {
+    public NetCluster requestHandler(Handler<ClientRequest> handler) {
         this.clusterRequestHandler=handler;
         return this;
     }
@@ -234,37 +235,37 @@ public class NetClusterImpl implements NetCluster {
         return this;
     }
 
-    void tryResponse(NetSocket netSocket,RpcMessage rpcMessage){
+    void tryResponse(NetSocket netSocket, ClusterMessage clusterMessage){
 
         if (!netSockets.contains(netSocket)){
             // other way
-            sendOrProxy(rpcMessage);
+            sendOrProxy(clusterMessage);
             return;
         }
-        logRpcMessage(rpcMessage);
+        logClusterMessage(clusterMessage);
 
-        netSocket.write(rpcMessage.encode());
+        netSocket.write(clusterMessage.encode());
     }
 
-    private void sendOrProxy(RpcMessage rpcMessage){
+    private void sendOrProxy(ClusterMessage clusterMessage){
 
-        ClusterNode clusterNode = nodeMap.get(rpcMessage.getTargetId());
+        ClusterNode clusterNode = nodeMap.get(clusterMessage.getTargetId());
         if (clusterNode.isActive()){
-           logRpcMessage(rpcMessage);
-            clusterNode.send(rpcMessage.encode());
+           logClusterMessage(clusterMessage);
+            clusterNode.send(clusterMessage.encode());
         }else{
             nodeMap.values().stream().filter(ClusterNode::isActive).findAny()
                     .ifPresent(cn-> {
-                        logRpcMessage(rpcMessage);
-                        cn.send(rpcMessage.encode());
+                        logClusterMessage(clusterMessage);
+                        cn.send(clusterMessage.encode());
                     });
         }
     }
 
-    private void logRpcMessage(RpcMessage rpcMessage){
+    private void logClusterMessage(ClusterMessage clusterMessage){
         if (logger.isDebugEnabled())
-            logger.debug("send messageType:{} targetId:{} fromId:{} requestId:{} payload: {}",
-                    rpcMessage.getMessageType(),rpcMessage.getTargetId(),rpcMessage.getFromId(),rpcMessage.getRequestId(),rpcMessage.getBuffer());
+            logger.debug("send messageType:{} targetId:{} fromId:{}  payload:{}",
+                    clusterMessage.getMessageType(), clusterMessage.getTargetId(), clusterMessage.getFromId(), clusterMessage.getBuffer());
     }
 
     @Override
@@ -292,8 +293,8 @@ public class NetClusterImpl implements NetCluster {
             logger.error("unknown node: {}",nodeId);
             return;
         }
-        RpcMessage rpcMessage = new RpcMessage(MessageType.VOTEREQUEST, nodeId, id, 0, Json.encodeToBuffer(voteMessage));
-        sendOrProxy(rpcMessage);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.VOTEREQUEST, nodeId, id,  Json.encodeToBuffer(voteMessage));
+        sendOrProxy(clusterMessage);
     }
 
     @Override
@@ -304,8 +305,8 @@ public class NetClusterImpl implements NetCluster {
         }
 
 
-        RpcMessage rpcMessage = new RpcMessage(MessageType.APPENDENTRIESREQUEST, nodeId, id, 0, appendEntriesMessage.encode());
-        sendOrProxy(rpcMessage);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.APPENDENTRIESREQUEST, nodeId, id,  appendEntriesMessage.encode());
+        sendOrProxy(clusterMessage);
     }
 
     @Override
@@ -314,24 +315,24 @@ public class NetClusterImpl implements NetCluster {
             logger.error("unknown node: {}",nodeId);
             return;
         }
-        RpcMessage rpcMessage = new RpcMessage(MessageType.REQUEST, nodeId, id, 0, installSnapshotMessage.encode());
-        sendOrProxy(rpcMessage);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.INSTALLSNAPSHOTREQUEST, nodeId, id,  installSnapshotMessage.encode());
+        sendOrProxy(clusterMessage);
     }
 
     @Override
-    public void request(String nodeId, int requestId, Buffer payload) {
+    public void request(String nodeId, Buffer payload) {
         if (!nodeEexist(nodeId)) {
             logger.error("unknown node: {}",nodeId);
             return;
         }
-        RpcMessage rpcMessage = new RpcMessage(MessageType.REQUEST, nodeId, id, requestId, payload);
-        sendOrProxy(rpcMessage);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.REQUEST, nodeId, id,  payload);
+        sendOrProxy(clusterMessage);
     }
 
     @Override
-    public void request(Set<String> nodeIds, int requestId, Buffer payload) {
+    public void request(Set<String> nodeIds, Buffer payload) {
         nodeIds.forEach(targetId->{
-            request(targetId,requestId,payload);
+            request(targetId,payload);
         });
     }
 
@@ -341,8 +342,8 @@ public class NetClusterImpl implements NetCluster {
             logger.error("unknown node: {}",nodeId);
             return;
         }
-        RpcMessage rpcMessage = new RpcMessage(MessageType.READINDEXREQUEST, nodeId, this.id, 0, Buffer.buffer(id, "utf-8"));
-        sendOrProxy(rpcMessage);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.READINDEXREQUEST, nodeId, this.id,  Buffer.buffer(id, "utf-8"));
+        sendOrProxy(clusterMessage);
     }
 
     private boolean nodeEexist(String id){

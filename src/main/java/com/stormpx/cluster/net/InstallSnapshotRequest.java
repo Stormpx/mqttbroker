@@ -2,21 +2,21 @@ package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.message.InstallSnapshotMessage;
 import com.stormpx.cluster.message.MessageType;
-import com.stormpx.cluster.message.RpcMessage;
+import com.stormpx.cluster.message.ClusterMessage;
 import io.vertx.core.json.Json;
 import io.vertx.core.net.NetSocket;
 
 public class InstallSnapshotRequest {
     private NetSocket netSocket;
     private NetClusterImpl netCluster;
-    private RpcMessage rpcMessage;
+    private ClusterMessage clusterMessage;
     private InstallSnapshotMessage installSnapshotMessage;
 
-    public InstallSnapshotRequest(NetSocket netSocket, NetClusterImpl netCluster, RpcMessage rpcMessage) {
+    public InstallSnapshotRequest(NetSocket netSocket, NetClusterImpl netCluster, ClusterMessage clusterMessage) {
         this.netSocket = netSocket;
         this.netCluster = netCluster;
-        this.rpcMessage = rpcMessage;
-        this.installSnapshotMessage=InstallSnapshotMessage.decode(rpcMessage.getBuffer());
+        this.clusterMessage = clusterMessage;
+        this.installSnapshotMessage=InstallSnapshotMessage.decode(clusterMessage.getBuffer());
 
     }
 
@@ -25,10 +25,10 @@ public class InstallSnapshotRequest {
     }
 
     public void response(boolean accept,boolean done,int offset,int term){
-        InstallSnapshotResponse installSnapshotResponse = new InstallSnapshotResponse().setNodeId(rpcMessage.getTargetId()).setAccept(accept).setDone(done).setNextOffset(offset).setTerm(term);
-        RpcMessage rpcMessage = new RpcMessage(MessageType.INSTALLSNAPSHOTRESPONSE, this.rpcMessage.getFromId(), this.rpcMessage.getTargetId(), 0,
+        InstallSnapshotResponse installSnapshotResponse = new InstallSnapshotResponse().setNodeId(this.clusterMessage.getTargetId()).setAccept(accept).setDone(done).setNextOffset(offset).setTerm(term);
+        ClusterMessage clusterMessage = new ClusterMessage(MessageType.INSTALLSNAPSHOTRESPONSE, this.clusterMessage.getFromId(), this.clusterMessage.getTargetId(),
                 Json.encodeToBuffer(installSnapshotResponse));
-        netCluster.tryResponse(netSocket,rpcMessage);
+        netCluster.tryResponse(netSocket, clusterMessage);
     }
 
 }

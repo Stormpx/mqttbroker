@@ -46,6 +46,8 @@ public class Snapshot {
         this.dir = dir;
         if (index!=0) {
             reOpenSnapshot();
+        }else{
+            this.promise.tryComplete();
         }
     }
 
@@ -68,16 +70,28 @@ public class Snapshot {
                     .onSuccess(af->{
                         if (!snapshotReaderMap.isEmpty())
                             return;
-                        this.promise=Promise.promise();
-                        this.asyncFile=null;
-                        af.close(v->{
-                            if (v.failed()){
-                                logger.error("file close failed?",v.cause());
-                            }
-                            Handler<Void> safetyHandler = this.safetyHandler;
-                            if (safetyHandler !=null)
+                        Handler<Void> safetyHandler = this.safetyHandler;
+
+                        if (safetyHandler==null)
+                            return;
+
+
+                        if (this.promise.future().isComplete()) {
+                            this.promise = Promise.promise();
+                            this.asyncFile = null;
+                        }
+                        if (meta().getIndex()==0){
+                            logger.debug("current snapshot lastIncludeIndex is zero ");
+                            safetyHandler.handle(null);
+                        }else {
+
+                            af.close(v -> {
+                                if (v.failed()) {
+                                    logger.error("file close failed?", v.cause());
+                                }
                                 safetyHandler.handle(null);
-                        });
+                            });
+                        }
                     });
         }
     }
@@ -116,8 +130,8 @@ public class Snapshot {
         snapshotWriter.future().setHandler(ar -> {
             String path = snapshotWriter.getPath();
             SnapshotMeta snapshotMeta = snapshotWriter.getSnapshotMeta();
-            if (ar.succeeded() && this.snapshotMeta.getNodeId().equals(snapshotMeta.getNodeId())) {
-                Promise<Void> promise = ar.result();
+            Promise<Void> promise = ar.result();
+            if (ar.succeeded() && this.snapshotContext.getSnapshotMeta().getNodeId().equals(snapshotMeta.getNodeId())) {
                 // wait all reader done
                 onSafe(v->{
                     drop(snapshotMeta.getNodeId());
@@ -144,10 +158,12 @@ public class Snapshot {
                             promise.tryFail(arr.cause());
                         }
                     });
+                    this.safetyHandler=null;
                 });
             } else {
                 if (ar.succeeded())
-                    promise.tryFail("");
+                    promise.tryFail(String.format("current snapshotWriter nodeId:%s != writer nodeId %s",
+                            this.snapshotContext.getSnapshotMeta().getNodeId(),snapshotMeta.getNodeId()));
                 drop(snapshotMeta.getNodeId());
                 vertx.fileSystem().delete(path, r -> { });
             }
@@ -191,6 +207,12 @@ public class Snapshot {
         }
     }
 
+    public void close(){
+        if (this.promise.future().isComplete())
+            this.promise=Promise.promise();
+        if (asyncFile!=null)
+            asyncFile.close();
+    }
 
     public SnapshotContext writerContext(){
         return snapshotContext;
@@ -221,7 +243,7 @@ public class Snapshot {
 
     private Future<AsyncFile> openFile(String path){
         Promise<AsyncFile> promise=Promise.promise();
-        vertx.fileSystem().open(path,new OpenOptions().setWrite(true),promise);
+        vertx.fileSystem().open(path,new OpenOptions().setCreate(true).setWrite(true),promise);
         return promise.future();
     }
 }

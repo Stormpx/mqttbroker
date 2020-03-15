@@ -84,14 +84,26 @@ public class MqttMetaData {
             set.remove(nodeId);
     }
 
-    public void setExecute(String nodeId,int requestId){
-        Set<Integer> set = idempotentMap.computeIfAbsent(nodeId, k -> new HashSet<>());
-        set.add(requestId);
+
+    public void setExecute(String nodeId,int proposalId){
+        Set<Integer> set = idempotentMap.computeIfAbsent(nodeId, k -> new TreeSet<>());
+        set.add(proposalId);
     }
 
-    public boolean isExecuted(String nodeId,int requestId){
+    public void discardProposalId(String nodeId,int proposalId){
         Set<Integer> set = idempotentMap.get(nodeId);
-        return set!=null&&set.contains(requestId);
+        if (set!=null){
+            TreeSet<Integer> treeSet = (TreeSet) set;
+            Integer id;
+            while ((id=treeSet.floor(proposalId))!=null){
+                treeSet.remove(id);
+            }
+        }
+    }
+
+    public boolean isExecuted(String nodeId,int proposalId){
+        Set<Integer> set = idempotentMap.get(nodeId);
+        return set!=null&&set.contains(proposalId);
     }
 
     public Set<String> getSessionIndex(String clientId){

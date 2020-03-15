@@ -2,7 +2,7 @@ package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.ClusterNode;
 import com.stormpx.cluster.NodeState;
-import com.stormpx.cluster.message.RpcMessage;
+import com.stormpx.cluster.message.ClusterMessage;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Promise;
@@ -25,7 +25,7 @@ public class ClusterNodeImpl implements ClusterNode {
     private boolean active;
     private NodeState nodeState;
 
-    private Handler<RpcMessage> messageHandler;
+    private Handler<ClusterMessage> messageHandler;
 
 
     public ClusterNodeImpl(Vertx vertx, String id, SocketAddress socketAddress) {
@@ -49,10 +49,10 @@ public class ClusterNodeImpl implements ClusterNode {
         });
     }
 
-    private void callHandler(RpcMessage rpcMessage){
-        Handler<RpcMessage> messageHandler = this.messageHandler;
+    private void callHandler(ClusterMessage clusterMessage){
+        Handler<ClusterMessage> messageHandler = this.messageHandler;
         if (messageHandler!=null)
-            messageHandler.handle(rpcMessage);
+            messageHandler.handle(clusterMessage);
 
     }
 
@@ -104,7 +104,7 @@ public class ClusterNodeImpl implements ClusterNode {
     }
 
     @Override
-    public ClusterNode messageHandler(Handler<RpcMessage> handler) {
+    public ClusterNode messageHandler(Handler<ClusterMessage> handler) {
         this.messageHandler=handler;
         return this;
     }

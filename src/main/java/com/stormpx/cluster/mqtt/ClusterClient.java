@@ -8,6 +8,7 @@ import com.stormpx.cluster.net.Response;
 import com.stormpx.store.*;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
@@ -22,8 +23,10 @@ public class ClusterClient {
     private MqttStateService stateService;
     private ClusterDataStore clusterDataStore;
     private Map<Integer,AsyncRequest> responseFutureMap;
-    private int requestId=1;
 
+    private ProposalIdentifier proposalIdentifier;
+
+    private int requestId;
 
     public ClusterClient(Vertx vertx,  MqttStateService stateService,ClusterDataStore clusterDataStore) {
         this.vertx = vertx;
@@ -32,21 +35,49 @@ public class ClusterClient {
         this.responseFutureMap=new HashMap<>();
     }
 
-    public int nextRequestId(){
-        int requestId = this.requestId++;
-        clusterDataStore.setRequestId(requestId);
-        return requestId;
+    class ProposalIdentifier{
+        private int lowestProposalId;
+        private int proposalId;
+        private Set<Integer> set;
+
+        public ProposalIdentifier(int proposalId) {
+            this.proposalId = proposalId;
+            this.lowestProposalId=proposalId-1;
+            this.set=new HashSet<>();
+        }
+
+        public int nextId(){
+            int proposalId = this.proposalId++;
+            clusterDataStore.setRequestId(proposalId);
+            return proposalId;
+        }
+
+        public int getLowestId(){
+            return lowestProposalId;
+        }
+
+        public void resp(int proposalId){
+            if (proposalId-lowestProposalId==1){
+                lowestProposalId=proposalId;
+                while (set.contains(lowestProposalId+1)&&lowestProposalId+1<this.proposalId){
+                    lowestProposalId+=1;
+                    set.remove(lowestProposalId);
+                }
+            }else{
+                set.add(proposalId);
+            }
+        }
+
     }
 
-    public ClusterClient setRequestId(int requestId) {
-        this.requestId = requestId;
-        return this;
+    public int nextRequestId(){
+        return requestId++;
     }
 
     public Future<Void> init(MqttCluster mqttCluster){
         this.mqttCluster=mqttCluster;
         return clusterDataStore.requestId()
-                .onSuccess(this::setRequestId)
+                .onSuccess(id-> this.proposalIdentifier=new ProposalIdentifier(id==null?1:id))
                 .map((Void)null);
     }
 
@@ -54,15 +85,21 @@ public class ClusterClient {
         fireResponse(response.getRequestId(),response);
     }
 
-    public void proposal(int requestId, ActionLog log){
-        Buffer buffer = new ProMessage("/addLog", JsonObject.mapFrom(log)).encode();
-        ProposalRequest proposalRequest = new ProposalRequest(requestId, buffer);
+
+    public void proposal( ActionLog log){
+        proposal(this.proposalIdentifier.nextId(),log);
+    }
+
+
+    public void proposal(int proposalId, ActionLog log){
+        ProposalRequest proposalRequest = new ProposalRequest(nextRequestId(),proposalId,this.proposalIdentifier.getLowestId(), log);
         proposalRequest.request()
                 .setHandler(ar->{
                     if (!ar.succeeded() || !ar.result().isSuccess()) {
-                        stateService.addPendingEvent(v->proposal(requestId, log));
+                        stateService.addPendingEvent(v->proposal(proposalId, log));
                     } else {
                         logger.debug("proposal success log:{}", log);
+                        this.proposalIdentifier.resp(proposalId);
                     }
                 });
     }
@@ -73,15 +110,13 @@ public class ClusterClient {
         NetCluster net = mqttCluster.net();
         int requestId = nextRequestId();
         Set<String> nodeIds = net.nodes().stream().map(ClusterNode::id).collect(Collectors.toSet());
-        mqttCluster.net().request(nodeIds,requestId,new ProMessage("/takenover",body).encode());
+        mqttCluster.net().request(nodeIds,new RpcMessage("/takenover",requestId,body).encode());
     }
 
 
     public Future<MessageObj> requestMessage(int requestId,Set<String> nodeIds, String id){
         Promise<MessageObj> promise=Promise.promise();
-
-        ProMessage proMessage = new ProMessage("/message", new JsonObject().put("id", id));
-        MultipleRequest multipleRequest = new MultipleRequest( requestId,nodeIds,proMessage.encode());
+        MultipleRequest multipleRequest = new MultipleRequest("/message", requestId,nodeIds,new JsonObject().put("id", id));
         multipleRequest.request()
                 .setHandler(ar->{
                     try {
@@ -106,9 +141,8 @@ public class ClusterClient {
 
 
     public Future<SessionObj> requestSession(int requestId,Set<String> set, String clientId){
-        ProMessage proMessage = new ProMessage("/session", new JsonObject().put("clientId", clientId));
         Promise<SessionObj> promise=Promise.promise();
-        MultipleRequest multipleRequest = new MultipleRequest( requestId,set,proMessage.encode());
+        MultipleRequest multipleRequest = new MultipleRequest("/session", requestId,set,new JsonObject().put("clientId", clientId));
         multipleRequest.request()
                 .setHandler(ar->{
                     SessionObj sessionObj = null;
@@ -140,7 +174,8 @@ public class ClusterClient {
         public AsyncRequest(int requestId) {
             this.requestId = requestId;
             this.promise = Promise.promise();
-            this.timeoutStream=vertx.timerStream(5000);
+            //FIXME debug
+            this.timeoutStream=vertx.timerStream(3000);
             this.timeoutStream.handler(v->{
                 logger.debug("requestId:{} timeout",requestId);
                 promise.tryFail("timeout");
@@ -155,17 +190,19 @@ public class ClusterClient {
         abstract void fire(Response response);
 
 
-        abstract Future<Response> request();
-
     }
 
 
     class ProposalRequest extends AsyncRequest{
-        private Buffer buffer;
+        private int lowestId;
+        private int proposalId;
+        private ActionLog actionLog;
 
-        public ProposalRequest(int requestId, Buffer buffer) {
+        public ProposalRequest(int requestId,int proposalId, int lowestId,ActionLog actionLog) {
             super(requestId);
-            this.buffer = buffer;
+            this.proposalId=proposalId;
+            this.lowestId=lowestId;
+            this.actionLog = actionLog;
         }
 
         @Override
@@ -173,23 +210,24 @@ public class ClusterClient {
             promise.tryComplete(response);
         }
 
-        @Override
-        Future<Response> request() {
+        private Future<Response> request() {
             String leaderId = mqttCluster.getLeaderId();
             String id = mqttCluster.id();
 
             if (leaderId != null) {
                 logger.debug("leaderId:{} id:{}",leaderId,id);
                 if (leaderId.equals(id)) {
-                    stateService.handle(new RpcMessage(MessageType.REQUEST,id,id,requestId,buffer))
-                            .onSuccess(r->fireResponse(requestId,r.setNodeId(id)))
+                    stateService.addLog(id,proposalId,lowestId, Json.encodeToBuffer(actionLog))
+                            .onSuccess(r->fireResponse(requestId,new Response().setSuccess(true).setNodeId(id)))
                             .onFailure(t->{
                                 logger.error("try add log failed",t);
                                 fireResponse(requestId,new Response().setNodeId(id).setSuccess(false));
                             })
                     ;
                 } else {
-                    mqttCluster.net().request(leaderId,requestId,buffer);
+                    Buffer buffer = new RpcMessage("/addLog", requestId,
+                            JsonObject.mapFrom(actionLog).put("lowestProposalId",lowestId).put("proposalId", this.proposalId)).encode();
+                    mqttCluster.net().request(leaderId,buffer);
                 }
             }else{
                 promise.tryFail("election");
@@ -199,13 +237,15 @@ public class ClusterClient {
     }
 
     class MultipleRequest extends AsyncRequest{
+        private String res;
         private Set<String> nodeIds;
-        private Buffer buffer;
+        private JsonObject body;
 
-        public MultipleRequest(int requestId, Set<String> nodeIds, Buffer buffer) {
+        public MultipleRequest(String res,int requestId, Set<String> nodeIds, JsonObject body) {
             super(requestId);
+            this.res=res;
             this.nodeIds = nodeIds;
-            this.buffer = buffer;
+            this.body=body;
         }
 
         @Override
@@ -222,9 +262,9 @@ public class ClusterClient {
             }
         }
 
-        @Override
-        public Future<Response> request() {
-            mqttCluster.net().request(nodeIds,requestId,buffer);
+        private Future<Response> request() {
+            RpcMessage rpcMessage = new RpcMessage(res, requestId, body);
+            mqttCluster.net().request(nodeIds,rpcMessage.encode());
             return promise.future();
         }
 

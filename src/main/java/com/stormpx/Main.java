@@ -11,7 +11,7 @@ import org.rocksdb.*;
 import java.io.File;
 
 public class Main {
-    public static void main(String[] args)   {
+    public static void main(String[] args) throws RocksDBException {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
 
         Vertx vertx = Vertx.vertx();

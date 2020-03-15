@@ -3,6 +3,7 @@ package com.stormpx.message;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttProperties;
 import com.stormpx.mqtt.MqttProperty;
+import io.netty.handler.codec.base64.Base64;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;

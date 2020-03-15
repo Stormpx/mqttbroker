@@ -1,9 +1,7 @@
 package com.stormpx.cluster;
 
-import com.stormpx.kit.UnSafeJsonObject;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
-import io.vertx.core.json.JsonObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -13,7 +11,8 @@ public class LogEntry {
 
     private int term;
     private int index;
-    private int requestId;
+    private int proposalId;
+    private int lowestProposalId;
     private String nodeId;
     private Buffer payload;
 
@@ -68,22 +67,33 @@ public class LogEntry {
         return this;
     }
 
-    public int getRequestId() {
-        return requestId;
+    public int getProposalId() {
+        return proposalId;
     }
 
-    public LogEntry setRequestId(int requestId) {
-        this.requestId = requestId;
+    public LogEntry setProposalId(int proposalId) {
+        this.proposalId = proposalId;
         return this;
     }
 
-    public static LogEntry decode(int pos,Buffer buffer){
+    public int getLowestProposalId() {
+        return lowestProposalId;
+    }
+
+    public LogEntry setLowestProposalId(int lowestProposalId) {
+        this.lowestProposalId = lowestProposalId;
+        return this;
+    }
+
+    public static LogEntry decode(int pos, Buffer buffer){
         int org=pos;
         int index = buffer.getInt(pos);
         pos+=4;
         int term = buffer.getInt(pos);
         pos+=4;
-        int requestId = buffer.getInt(pos);
+        int proposalId = buffer.getInt(pos);
+        pos+=4;
+        int lowestProposalId=buffer.getInt(pos);
         pos+=4;
         int nodeIdLength = buffer.getUnsignedShort(pos);
         pos+=2;
@@ -94,7 +104,7 @@ public class LogEntry {
         Buffer payload = buffer.getBuffer(pos, pos + payloadLength);
         pos+=payloadLength;
 
-        LogEntry logEntry = new LogEntry().setIndex(index).setTerm(term).setRequestId(requestId).setNodeId(nodeId).setPayload(payload);
+        LogEntry logEntry = new LogEntry().setIndex(index).setTerm(term).setProposalId(proposalId).setLowestProposalId(lowestProposalId).setNodeId(nodeId).setPayload(payload);
 
         logEntry.length=pos-org;
         return logEntry;
@@ -109,7 +119,8 @@ public class LogEntry {
         byte[] nodeIdBytes = nodeId.getBytes(StandardCharsets.UTF_8);
         buffer.appendInt(index);
         buffer.appendInt(term);
-        buffer.appendInt(requestId);
+        buffer.appendInt(proposalId);
+        buffer.appendInt(lowestProposalId);
 
         buffer.appendUnsignedShort(nodeIdBytes.length)
                 .appendBytes(nodeIdBytes);
@@ -129,17 +140,17 @@ public class LogEntry {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         LogEntry logEntry = (LogEntry) o;
-        return term == logEntry.term && index == logEntry.index && requestId == logEntry.requestId && Objects.equals(nodeId, logEntry.nodeId) && Objects.equals(payload, logEntry.payload);
+        return term == logEntry.term && index == logEntry.index && proposalId == logEntry.proposalId && Objects.equals(nodeId, logEntry.nodeId) && Objects.equals(payload, logEntry.payload);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(term, index, requestId, nodeId, payload);
+        return Objects.hash(term, index, proposalId, nodeId, payload);
     }
 
     @Override
     public String toString() {
-        return "LogEntry{" + "term=" + term + ", index=" + index + ", requestId=" + requestId + ", nodeId='" + nodeId + '\'' + ", payload=" + payload + ", length=" + length + '}';
+        return "LogEntry{" + "term=" + term + ", index=" + index + ", requestId=" + proposalId + ", nodeId='" + nodeId + '\'' + ", payload=" + payload + ", length=" + length + '}';
     }
 
     private static class LogEntryCodec implements MessageCodec<LogEntry,LogEntry> {

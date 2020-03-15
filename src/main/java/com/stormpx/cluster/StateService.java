@@ -1,7 +1,8 @@
 package com.stormpx.cluster;
 
 
-import com.stormpx.cluster.message.RpcMessage;
+import com.stormpx.cluster.message.ClusterMessage;
+import com.stormpx.cluster.net.ClientRequest;
 import com.stormpx.cluster.net.Response;
 import com.stormpx.cluster.snapshot.SnapshotContext;
 import com.stormpx.cluster.snapshot.SnapshotReader;
@@ -13,7 +14,7 @@ public interface StateService {
 
     Future<Void> init(MqttCluster mqttCluster);
 
-    Future<Response> handle(RpcMessage rpcMessage);
+    void handle(ClientRequest clientRequest);
 
 
     void firePendingEvent(String leaderId);

@@ -25,7 +25,7 @@ public class SnapshotWriter {
 
     public void write(Buffer buffer){
         offset+=buffer.length();
-        asyncFile.write(buffer.copy(), ar->{
+        asyncFile.write(buffer, ar->{
             if (!ar.succeeded()) {
                 logger.error("write snapshot failed",ar.cause());
                 end();
@@ -39,7 +39,7 @@ public class SnapshotWriter {
         end=true;
         asyncFile.end(ar->{
             if (ar.succeeded()){
-                this.promise.complete(promise);
+                this.promise.tryComplete(promise);
             }else{
                 this.promise.tryFail(ar.cause());
                 promise.tryFail(ar.cause());

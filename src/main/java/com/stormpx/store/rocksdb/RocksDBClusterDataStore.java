@@ -2,6 +2,7 @@ package com.stormpx.store.rocksdb;
 
 import com.stormpx.cluster.LogEntry;
 import com.stormpx.cluster.snapshot.SnapshotMeta;
+import com.stormpx.kit.FileUtil;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -11,14 +12,12 @@ import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.RocksIterator;
-import org.rocksdb.WriteOptions;
+import org.rocksdb.*;
 
 import java.io.File;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 
 public class RocksDBClusterDataStore implements ClusterDataStore {
@@ -30,15 +29,11 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public RocksDBClusterDataStore(Vertx vertx,String dir,String id) throws RocksDBException {
         this.vertx=vertx;
         String path = Paths.get(dir).normalize().toString() + "/meta_data/"+id;
-        create(new File(path));
+        FileUtil.create(new File(path));
         this.rocksDB=RocksDB.open(path);
     }
 
-    private void create(File file){
-        if (!file.getParentFile().exists())
-            create(file.getParentFile());
-        file.mkdir();
-    }
+
 
     @Override
     public void setRequestId(int requestId) {
@@ -227,7 +222,20 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
 
         vertx.executeBlocking(p->{
             try {
-                rocksDB.deleteRange(new WriteOptions().setSync(false),("log-"+start).getBytes(),("log-"+end).getBytes());
+                RocksIterator rocksIterator = rocksDB.newIterator();
+                WriteBatch batch = new WriteBatch();
+                for (rocksIterator.seek("log".getBytes());rocksIterator.isValid();rocksIterator.next()){
+                    String key = new String(rocksIterator.key());
+                    if (!key.startsWith("log"))
+                        break;
+                    String n = key.substring(4);
+                    int sn = Integer.parseInt(n);
+                    if (sn>=start&&sn<end){
+                        batch.remove(rocksIterator.key());
+                    }
+                }
+                rocksIterator.close();
+                rocksDB.write(new WriteOptions().setSync(false),batch);
             } catch (RocksDBException e) {
                 logger.error("del log fail",e);
             }

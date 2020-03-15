@@ -1,5 +1,6 @@
 package com.stormpx.store.rocksdb;
 
+import com.stormpx.kit.FileUtil;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.ObjCodec;
@@ -27,15 +28,10 @@ public class RocksDBMessageStore implements MessageStore {
     public RocksDBMessageStore(Vertx vertx,String dir) throws RocksDBException {
         this.vertx = vertx;
         String path = Paths.get(dir).normalize().toString() + "/message";
-        create(new File(path));
+        FileUtil.create(new File(path));
         this.rocksDB=RocksDB.open(path);
     }
 
-    private void create(File file){
-        if (!file.getParentFile().exists())
-            create(file.getParentFile());
-        file.mkdir();
-    }
 
     @Override
     public Future<Map<String, String>> retainMap() {

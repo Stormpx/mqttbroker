@@ -1,107 +1,65 @@
 package com.stormpx.cluster.message;
 
+import com.stormpx.kit.MqttCodecUtil;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.json.JsonObject;
 
 public class RpcMessage {
-    private MessageType messageType;
-    private String targetId;
-    private String fromId;
+    private String res;
     private int requestId;
-    private Buffer buffer;
+    private JsonObject body;
 
-    public RpcMessage(MessageType messageType, String targetId, String fromId, int requestId, Buffer buffer) {
-        this.messageType = messageType;
-        this.targetId = targetId;
-        this.fromId = fromId;
+    public RpcMessage(String res, int requestId, JsonObject body) {
+        this.res = res;
         this.requestId = requestId;
-        this.buffer = buffer;
+        this.body = body;
     }
 
-   /* public static Buffer encode(MessageType messageType, String nodeId, int requestId, Buffer payload){
-        Buffer id = Buffer.buffer(nodeId, "utf-8");
-        int size = 1 + 2 + id.length() + 4 + payload.length();
-        if (messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)
-            size+=4;
-        Buffer buffer = Buffer.buffer(size);
-        buffer.appendByte((byte) messageType.getValue());
-        buffer.appendUnsignedShort(id.length())
-                .appendBuffer(id);
-        if (messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)
-            buffer.appendInt(requestId);
+    public static RpcMessage decode(Buffer buffer){
+        int pos=0;
+        int len = buffer.getUnsignedShort(pos);
+        pos+=2;
+        int requestId = buffer.getInt(pos);
+        pos+=4;
+        Buffer res = buffer.getBuffer(pos, pos + len);
+        pos+=len;
+        JsonObject json = buffer.slice(pos, buffer.length()).toJsonObject();
+        return new RpcMessage(res.toString("utf-8"),requestId,json);
 
-        buffer.appendInt(payload.length())
-            .appendBuffer(payload);
-
-        return buffer;
-    }
-*/
-    public MessageType getMessageType() {
-        return messageType;
+        /*RequestType requestType = RequestType.valueOf(buffer.getByte(0));
+        JsonObject body = buffer.slice(0, buffer.length()).toJsonObject();
+        return new ProMessage(requestType,body);*/
     }
 
-    public RpcMessage setMessageType(MessageType messageType) {
-        this.messageType = messageType;
+    public RpcMessage setRes(String res) {
+        this.res = res;
         return this;
     }
 
-    public int getRequestId() {
-        return requestId;
+    public JsonObject getBody() {
+        return body;
     }
 
-    public RpcMessage setRequestId(int requestId) {
-        this.requestId = requestId;
-        return this;
-    }
-
-    public Buffer getBuffer() {
-        return buffer;
-    }
-
-    public RpcMessage setBuffer(Buffer buffer) {
-        this.buffer = buffer;
-        return this;
-    }
-
-
-    public String getTargetId() {
-        return targetId;
-    }
-
-    public RpcMessage setTargetId(String targetId) {
-        this.targetId = targetId;
-        return this;
-    }
-
-    public String getFromId() {
-        return fromId;
-    }
-
-    public RpcMessage setFromId(String fromId) {
-        this.fromId = fromId;
+    public RpcMessage setBody(JsonObject body) {
+        this.body = body;
         return this;
     }
 
     public Buffer encode(){
-        Buffer targetId = Buffer.buffer(this.targetId, "utf-8");
-        Buffer fromId = Buffer.buffer(this.fromId, "utf-8");
-        int size = 1 +  2 + targetId.length() +2 + fromId.length() + 4 + buffer.length();
-        if (messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)
-            size+=4;
-        Buffer buffer = Buffer.buffer(size);
-        buffer.appendByte((byte) messageType.getValue());
+        Buffer buffer = body.toBuffer();
+        byte[] utf8String = MqttCodecUtil.encodeUtf8String(res);
+        return Buffer.buffer(2+utf8String.length+4+buffer.length())
+                .appendUnsignedShort(utf8String.length)
+                .appendInt(requestId)
+                .appendBytes(utf8String)
+                .appendBuffer(buffer);
+    }
 
-        buffer.appendUnsignedShort(targetId.length())
-                .appendBuffer(targetId);
+    public String getRes() {
+        return res;
+    }
 
-        buffer.appendUnsignedShort(fromId.length())
-                .appendBuffer(fromId);
-
-        if (messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)
-            buffer.appendInt(requestId);
-
-        buffer.appendInt(this.buffer.length())
-                .appendBuffer(this.buffer);
-
-        return buffer;
+    public int getRequestId() {
+        return requestId;
     }
 }
