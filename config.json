@@ -1,10 +1,10 @@
 {
   "sni": false,
   "tcp_no_delay": false,
-  "verticle_instance": 2,
+  "verticle_instance": 5,
   "mqtt": {
-    "max_message_expiry_interval": 600,
-    "max_session_expiry_interval": 600,
+    "max_message_expiry_interval": 6000,
+    "max_session_expiry_interval": 6000,
     "maximum_qos": 2,
     "maximum_packet_size": 268435455,
     "receive_maximum": 65535,

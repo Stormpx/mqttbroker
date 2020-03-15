@@ -1,13 +1,17 @@
-package com.stormpx.cluster;
+package com.stormpx.cluster.mqtt;
 
+import com.stormpx.cluster.LogEntry;
+import com.stormpx.cluster.MemberType;
+import com.stormpx.cluster.MqttCluster;
+import com.stormpx.cluster.StateService;
 import com.stormpx.cluster.message.ActionLog;
-import com.stormpx.cluster.message.ProMessage;
 import com.stormpx.cluster.message.RpcMessage;
+import com.stormpx.cluster.message.ClusterMessage;
+import com.stormpx.cluster.net.ClientRequest;
 import com.stormpx.cluster.net.Response;
+import com.stormpx.cluster.snapshot.SnapshotContext;
+import com.stormpx.cluster.snapshot.SnapshotReader;
 import com.stormpx.kit.TopicFilter;
-import com.stormpx.store.MessageStore;
-import com.stormpx.store.SessionStore;
-import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.Json;
@@ -25,48 +29,22 @@ public class MqttStateService implements StateService {
     private Vertx vertx;
     private MqttCluster mqttCluster;
 
-    private SessionStore sessionStore;
-
     private Map<String, Function<JsonObject,Future<?>>> handlerMap;
 
 
-    private Map<String,Map<Integer, Promise<Void>>> mapMap;
+    private Map<String,Map<Integer, Promise<Void>>> promiseMap;
 
-    private TopicFilter topicFilter;
-    //key nodeId value requestId
-    private Map<String,Set<Integer>> idempotentMap;
-    //key topic value id
-    private Map<String,String> retainMap;
-    //key id value nodeIds
-    private Map<String, Set<String>> idIndexMap;
-    //key clientId value nodeIds
-    private Map<String,Set<String>> sessionMap;
+    private MqttMetaData mqttMetaData;
 
     private List<Handler<Void>> pending;
 
-    public MqttStateService(Vertx vertx,SessionStore sessionStore) {
-        this.vertx = vertx;
-        this.sessionStore=sessionStore;
-        this.handlerMap=new HashMap<>();
-        this.topicFilter=new TopicFilter();
-        this.retainMap=new HashMap<>();
-        this.idIndexMap=new HashMap<>();
-        this.sessionMap=new HashMap<>();
-        this.idempotentMap=new HashMap<>();
-        this.pending=new ArrayList<>();
-        this.mapMap=new HashMap<>();
-    }
 
     public MqttStateService(Vertx vertx ) {
         this.vertx = vertx;
         this.handlerMap=new HashMap<>();
-        this.topicFilter=new TopicFilter();
-        this.retainMap=new HashMap<>();
-        this.idIndexMap=new HashMap<>();
-        this.sessionMap=new HashMap<>();
-        this.idempotentMap=new HashMap<>();
+        this.mqttMetaData=new MqttMetaData();
         this.pending=new ArrayList<>();
-        this.mapMap=new HashMap<>();
+        this.promiseMap =new HashMap<>();
     }
 
     @Override
@@ -78,10 +56,13 @@ public class MqttStateService implements StateService {
             Integer requestId = body.getInteger("rpc-requestId",0);
             body.remove("rpc-nodeId");
             body.remove("rpc-requestId");
-            if (mqttCluster.getMemberType()!=MemberType.LEADER) {
+            Object lowestProposalId = body.remove("lowestProposalId");
+            Object proposalId = body.remove("proposalId");
+
+            if (mqttCluster.getMemberType()!= MemberType.LEADER) {
                 return Future.<Buffer>succeededFuture();
             }else {
-                return addLog(nodeId, requestId, body.toBuffer())
+                return addLog(nodeId, (Integer) proposalId,(Integer)lowestProposalId, body.toBuffer())
                         .map(v->Buffer.buffer());
             }
         });
@@ -93,24 +74,23 @@ public class MqttStateService implements StateService {
 
 
     @Override
-    public Future<Response> handle(RpcMessage rpcMessage) {
-        int requestId = rpcMessage.getRequestId();
-        String nodeId = rpcMessage.getFromId();
+    public void handle(ClientRequest clientRequest) {
+        ClusterMessage clusterMessage = clientRequest.getClusterMessage();
 
-        ProMessage proMessage = ProMessage.decode(rpcMessage.getBuffer());
+        String nodeId = clusterMessage.getFromId();
 
-//        Promise<Response> promise=Promise.promise();
-
-        String res = proMessage.getRes();
+        RpcMessage prcMessage = RpcMessage.decode(clusterMessage.getBuffer());
+        int requestId = prcMessage.getRequestId();
+        String res = prcMessage.getRes();
         Function<JsonObject, Future<?>> function = handlerMap.get(res);
         if (function==null){
-            return Future.succeededFuture(new Response().setSuccess(false));
+            clientRequest.response(false,requestId,Buffer.buffer());
         }else{
-            JsonObject body = proMessage.getBody();
+            JsonObject body = prcMessage.getBody();
             body.put("rpc-nodeId",nodeId)
                 .put("rpc-requestId",requestId);
 
-            return function.apply(body)
+            function.apply(body)
                     .map(o->{
                         if (o==null){
                             return new Response().setSuccess(false);
@@ -127,63 +107,16 @@ public class MqttStateService implements StateService {
                         } else{
                             return new Response().setSuccess(true).setPayload(Json.encodeToBuffer(o));
                         }
+                    })
+                    .setHandler(ar->{
+                        if (ar.succeeded()){
+                            Response response = ar.result();
+                            clientRequest.response(response.isSuccess(),requestId, response.getPayload());
+                        }else{
+                            clientRequest.response(false,requestId,Buffer.buffer());
+                        }
                     });
         }
-        /*JsonObject body = proMessage.getBody();
-        switch (proMessage.getRequestType()){
-            case SESSION:
-                String clientId = body.getString("clientId");
-                sessionStore.get(clientId)
-                        .setHandler(ar->{
-                            if (ar.succeeded()&&ar.result()!=null){
-                                Buffer buffer = new ObjCodec().encodeSessionObj(ar.result());
-                                promise.complete(new Response().setSuccess(true).setPayload(buffer));
-                            }else{
-                                logger.error("get session fail ",ar.cause());
-                                promise.complete(new Response().setSuccess(false));
-                            }
-                        });
-                break;
-            case MESSAGE:
-                String id = body.getString("id");
-                messageStore.get(id)
-                        .setHandler(ar->{
-                            if (ar.succeeded()&&ar.result()!=null){
-                                promise.complete(new Response().setSuccess(true).setPayload(new ObjCodec().encodeMessageObj(ar.result())));
-                            }else{
-                                logger.error("get message id:{} fail",ar.cause());
-                                promise.complete(new Response().setSuccess(false));
-                            }
-                        });
-                break;
-            case TAKENOVER:
-                Handler<JsonObject> takeoverHandler = this.takeoverHandler;
-                if (takeoverHandler!=null)
-                    takeoverHandler.handle(body);
-                promise.complete(new Response().setSuccess(true));
-                break;
-            case PUBLISH:
-                Handler<JsonObject> publishHandler = this.publishHandler;
-                if (publishHandler!=null){
-                    publishHandler.handle(body);
-                }
-                promise.complete(new Response().setSuccess(true));
-                break;
-            case ADDLOG:
-                if (mqttCluster.getMemberType()!=MemberType.LEADER) {
-                    promise.complete(new Response().setSuccess(false));
-                }else {
-                    addLog(nodeId, requestId, body.toBuffer())
-                            .onFailure(promise::tryFail)
-                            .onSuccess(v -> promise.tryComplete(new Response().setSuccess(true)));
-                }
-                break;
-        }
-        //sub unsub saveid savesession --> leader wait headrtbeat  resp after commit
-        //dis retainMessage sessionIndex messageIndex req -->exec&resp after headrtbeat
-        //messagereq sessionreq takenoversession --> respimmd
-
-        return promise.future();*/
     }
 
     public void addHandler(String resource,Function<JsonObject,Future<?>> handler){
@@ -205,7 +138,7 @@ public class MqttStateService implements StateService {
                        pending.add(v-> retainMapWithReadIndex().onComplete(promise));
                    }else{
 
-                       promise.complete(retainMap);
+                       promise.complete(mqttMetaData.getRetainMap());
                    }
                 });
 
@@ -220,7 +153,7 @@ public class MqttStateService implements StateService {
                         logger.error("topicMatchesWithReadIndex failed",ar.cause());
                         pending.add(v-> topicMatchesWithReadIndex(topic).onComplete(promise));
                     }else {
-                        Collection<TopicFilter.SubscribeInfo> matches = this.topicFilter.matches(topic);
+                        Collection<TopicFilter.SubscribeInfo> matches = mqttMetaData.getTopicFilter().matches(topic);
                         promise.complete(matches);
 
                     }
@@ -237,7 +170,8 @@ public class MqttStateService implements StateService {
                         logger.error("fetchSessionIndexWithReadIndex failed",ar.cause());
                         pending.add(v-> fetchSessionIndexWithReadIndex(clientId).onComplete(promise));
                     }else{
-                        Set<String> set = sessionMap.get(clientId);
+
+                        Set<String> set = mqttMetaData.getSessionIndex(clientId);
                         set=set==null?Collections.emptySet():Set.copyOf(set);
                         promise.complete(set);
                     }
@@ -262,7 +196,8 @@ public class MqttStateService implements StateService {
     }
     public Map<String,Set<String>> fetchMessageIndex(Set<String> ids){
         HashMap<String,Set<String>> map = ids.stream().reduce(new HashMap<>(), (m, s) -> {
-            Set<String> set = idIndexMap.get(s);
+
+            Set<String> set = mqttMetaData.getMessageIndex(s);
             if (set != null) m.put(s, Set.copyOf(set));
             return m;
         }, (q1, q2) -> q1);
@@ -271,11 +206,11 @@ public class MqttStateService implements StateService {
 
 
 
-    private Future<Void> addLog(String nodeId, int requestId, Buffer buffer){
-        Map<Integer, Promise<Void>> integerPromiseMap = mapMap.computeIfAbsent(nodeId, k -> new HashMap<>());
+    public Future<Void> addLog(String nodeId, int proposalId,int lowestProposalId, Buffer buffer){
+        Map<Integer, Promise<Void>> integerPromiseMap = promiseMap.computeIfAbsent(nodeId, k -> new HashMap<>());
         Promise<Void> promise = Promise.promise();
-        integerPromiseMap.put(requestId,promise);
-        mqttCluster.addLog(nodeId,requestId,buffer);
+        integerPromiseMap.put(proposalId,promise);
+        mqttCluster.addLog(nodeId,proposalId,lowestProposalId,buffer);
         return promise.future();
     }
 
@@ -291,37 +226,40 @@ public class MqttStateService implements StateService {
         Buffer payload = logEntry.getPayload();
         if (payload==null||payload.length()==0)
             return;
+        int proposalId = logEntry.getProposalId();
+        int lowestProposalId = logEntry.getLowestProposalId();
         if (logger.isDebugEnabled())
-            logger.debug("apply index:{} term:{} node:{} requestId:{} log:{}",
-                    logEntry.getIndex(),logEntry.getTerm(),logEntry.getNodeId(),logEntry.getRequestId(),payload);
+            logger.debug("apply index:{} term:{} node:{} proposalId:{} lowestProposalId:{} log:{}",
+                    logEntry.getIndex(),logEntry.getTerm(),logEntry.getNodeId(), proposalId,lowestProposalId,payload);
         ActionLog actionLog = Json.decodeValue(payload, ActionLog.class);
         ActionLog.Action action = ActionLog.Action.of(actionLog.getAction());
         if (action==null)
             return;
-        if (logEntry.getRequestId()!=0){
-            String nodeId = logEntry.getNodeId();
-            Set<Integer> set = idempotentMap.computeIfAbsent(nodeId, k -> new HashSet<>());
-            if (set.contains(logEntry.getRequestId())) {
-                response(nodeId,logEntry.getRequestId());
-                return;
-            }
+
+        String proposalNodeId = logEntry.getNodeId();
+
+        if (lowestProposalId!=0){
+            mqttMetaData.discardProposalId(proposalNodeId,lowestProposalId);
         }
+
+        if (proposalId != 0 && mqttMetaData.isExecuted(proposalNodeId, proposalId)) {
+            response(proposalNodeId, proposalId);
+            return;
+        }
+
+
         switch (action){
             case SUBSCRIBE:
                 List<String> args = actionLog.getArgs();
                 String nodeId = args.get(0);
-                ListIterator<String> listIterator = args.listIterator(1);
-                listIterator.forEachRemaining(topicFilter->{
-                    this.topicFilter.subscribe(topicFilter,nodeId, MqttQoS.EXACTLY_ONCE,false,false,0);
-                });
+                List<String> list = args.subList(0, args.size());
+                mqttMetaData.addSubscription(nodeId,list);
                 break;
             case UNSUBSCRIBE:
                 args = actionLog.getArgs();
                 nodeId = args.get(0);
-                listIterator = args.listIterator(1);
-                listIterator.forEachRemaining(topicFilter->{
-                    this.topicFilter.unSubscribe(topicFilter,nodeId);
-                });
+                list=args.subList(0,args.size());
+                mqttMetaData.delSubscription(nodeId,list);
                 break;
             case SAVEMESSAGE:
                 args = actionLog.getArgs();
@@ -333,55 +271,93 @@ public class MqttStateService implements StateService {
                     int payloadLength = Integer.parseInt(args.get(4));
                     if (payloadLength==0){
                         //del
-                        retainMap.remove(topic);
+                        mqttMetaData.removeRetain(topic);
                     }else{
-                        retainMap.put(topic,messageId);
+                        mqttMetaData.putRetain(topic,messageId);
                     }
                 }
-                Set<String> idIndexSet = idIndexMap.computeIfAbsent(messageId, k -> new HashSet<>());
-                idIndexSet.add(nodeId);
+                mqttMetaData.saveMessage(nodeId,messageId);
                 break;
             case DELMESSAGE:
                 args = actionLog.getArgs();
                 nodeId = args.get(0);
                 String id = args.get(1);
-                Set<String> set = idIndexMap.get(id);
-                if (set!=null)
-                    set.remove(nodeId);
+                mqttMetaData.delMessage(nodeId,id);
                 break;
             case SAVESESSION:
                 args = actionLog.getArgs();
                 nodeId = args.get(0);
                 String clientId=args.get(1);
                 String reset=args.get(2);
-                Set<String> clientIdIndexSet = sessionMap.computeIfAbsent(clientId, k -> new HashSet<>());
+
                 if ("y".equals(reset)) {
-                    clientIdIndexSet.clear();
+                    mqttMetaData.clearSession(clientId);
                     if (!nodeId.equals(mqttCluster.id())){
-//                        sessionStore.del(clientId);
+                        //FIXME
                     }
                 }
-                clientIdIndexSet.add(nodeId);
+                mqttMetaData.saveSession(nodeId,clientId);
                 break;
             case DELSESSION:
                 args = actionLog.getArgs();
                 nodeId = args.get(0);
                 clientId=args.get(1);
-                clientIdIndexSet = sessionMap.computeIfAbsent(clientId, k -> new HashSet<>());
-                clientIdIndexSet.remove(nodeId);
+                mqttMetaData.removeSession(nodeId,clientId);
                 break;
+            default:
+                logger.error("unknown action type?????");
         }
-        if (logEntry.getRequestId()!=0){
-            String nodeId = logEntry.getNodeId();
-            idempotentMap.get(nodeId).add(logEntry.getRequestId());
-            response(nodeId,logEntry.getRequestId());
+
+        if (proposalId !=0){
+            mqttMetaData.setExecute(proposalNodeId, proposalId);
+            response(proposalNodeId, proposalId);
         }
     }
 
-    private void response(String nodeId,int requestId){
-        Map<Integer, Promise<Void>> map = mapMap.get(nodeId);
+    @Override
+    public Future<Void> applySnapshot(SnapshotReader snapshotReader) {
+        Promise<Void> promise=Promise.promise();
+        snapshotReader.readAll()
+                .onFailure(promise::tryFail)
+                .onSuccess(buffer->{
+                    MqttMetaData mqttMetaData = new MqttMetaData();
+                    mqttMetaData.decode(buffer);
+                    if (logger.isDebugEnabled()){
+                        logger.debug("new snapshot :{}",mqttMetaData);
+                    }
+                    this.mqttMetaData=mqttMetaData;
+                    promise.complete();
+                });
+
+        return promise.future();
+    }
+
+    @Override
+    public void writeSnapshot(SnapshotContext snapshotContext) {
+        MqttMetaData metaData = mqttMetaData.copy();
+        snapshotContext.getWriter()
+                .onFailure(t->logger.error("try get snapshot writer failed",t))
+                .onSuccess(writer->{
+                    vertx.<Void>executeBlocking(p->{
+                        writer.write(metaData.encodeSubscribe());
+                        writer.write(metaData.encodeRequestId());
+                        writer.write(metaData.encodeRetain());
+                        writer.write(metaData.encodeIdIndex());
+                        writer.write(metaData.encodeSessionIndex());
+                        writer.end().setHandler(p);
+                    },ar->{
+                        if (ar.failed()){
+                            logger.error("bug write snapshot failed ",ar.cause());
+                        }
+                    });
+
+                });
+    }
+
+    private void response(String nodeId,int proposalId){
+        Map<Integer, Promise<Void>> map = promiseMap.get(nodeId);
         if (map!=null){
-            Promise<Void> promise = map.remove(requestId);
+            Promise<Void> promise = map.remove(proposalId);
             if (promise!=null)
                 promise.tryComplete();
         }

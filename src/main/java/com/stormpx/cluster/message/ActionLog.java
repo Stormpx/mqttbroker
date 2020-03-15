@@ -1,6 +1,5 @@
 package com.stormpx.cluster.message;
 
-import com.stormpx.cluster.TopicMatchResult;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
 

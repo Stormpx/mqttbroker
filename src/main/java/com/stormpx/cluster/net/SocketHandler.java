@@ -1,7 +1,7 @@
 package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.message.MessageType;
-import com.stormpx.cluster.message.RpcMessage;
+import com.stormpx.cluster.message.ClusterMessage;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
@@ -14,17 +14,16 @@ public class SocketHandler implements Handler<Buffer> {
     private String targetId;
     private Integer fromIdLength;
     private String fromId;
-    private Integer requestId;
     private CompositeByteBuf buf;
     private Integer payloadLength;
-    private Handler<RpcMessage> handler;
+    private Handler<ClusterMessage> handler;
 
     public SocketHandler() {
         this.buf= Unpooled.compositeBuffer();
     }
 
 
-    public SocketHandler messageHandler(Handler<RpcMessage> handler){
+    public SocketHandler messageHandler(Handler<ClusterMessage> handler){
         this.handler=handler;
         return this;
     }
@@ -64,12 +63,6 @@ public class SocketHandler implements Handler<Buffer> {
             }
             fromId =buf.readSlice(fromIdLength).toString(CharsetUtil.UTF_8);
         }
-        if (requestId==null&&(messageType==MessageType.REQUEST||messageType==MessageType.RESPONSE)){
-            if (buf.readableBytes()<4) {
-                return;
-            }
-            requestId=buf.readInt();
-        }
         if (payloadLength ==null){
             if (buf.readableBytes()<4) {
                 return;
@@ -78,10 +71,10 @@ public class SocketHandler implements Handler<Buffer> {
         }
         if (buf.readableBytes()>= payloadLength){
             Buffer payload = Buffer.buffer(buf.readSlice(payloadLength));
-            Handler<RpcMessage> handler = this.handler;
+            Handler<ClusterMessage> handler = this.handler;
             if (handler!=null) {
                 try {
-                    handler.handle(new RpcMessage(messageType,targetId,fromId,requestId==null?0:requestId,payload));
+                    handler.handle(new ClusterMessage(messageType,targetId,fromId,payload));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -98,7 +91,6 @@ public class SocketHandler implements Handler<Buffer> {
         fromIdLength =null;
         fromId =null;
         messageType=null;
-        requestId=null;
     }
 
 }

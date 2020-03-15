@@ -2,6 +2,7 @@ package com.stormpx.store.memory;
 
 import com.fasterxml.jackson.databind.util.JSONPObject;
 import com.stormpx.cluster.LogEntry;
+import com.stormpx.cluster.snapshot.SnapshotMeta;
 import com.stormpx.store.ClusterDataStore;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -17,6 +18,8 @@ public class MemoryClusterDataStore implements ClusterDataStore {
     private JsonObject state;
     private int requestId;
     private TreeMap<Integer,LogEntry> logMap;
+    private SnapshotMeta snapshotMeta;
+
 
     public MemoryClusterDataStore() {
         this.logMap=new TreeMap<>();
@@ -30,6 +33,16 @@ public class MemoryClusterDataStore implements ClusterDataStore {
     @Override
     public Future<Integer> requestId() {
         return Future.succeededFuture(requestId);
+    }
+
+    @Override
+    public void saveSnapshotMeta(SnapshotMeta snapshotMeta) {
+        this.snapshotMeta=snapshotMeta;
+    }
+
+    @Override
+    public Future<SnapshotMeta> getSnapshotMeta() {
+        return Future.succeededFuture(snapshotMeta);
     }
 
     @Override

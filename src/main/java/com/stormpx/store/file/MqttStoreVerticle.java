@@ -243,7 +243,6 @@ public class MqttStoreVerticle extends AbstractVerticle {
      * @param path
      */
     private Future<Void> writeFile(String path){
-
         Promise<Void> p=Promise.promise();
         vertx.executeBlocking(promise->{
             String randomName = UUID.randomUUID().toString();

@@ -24,6 +24,8 @@ public class LogList {
     public Future<List<LogEntry>> getLog(int start, int end){
         if (start>end)
             return Future.succeededFuture(new ArrayList<>());
+        if (start<firstLogIndex)
+            start=firstLogIndex+1;
         if (start<1)
             start=1;
         if (start>lastLogIndex)
@@ -77,9 +79,10 @@ public class LogList {
 
 
 
-    public LogEntry addLog(String nodeId,int currentTerm, int requestId, Buffer buffer){
+    public LogEntry addLog(String nodeId,int currentTerm, int proposalId,int lowestProposalId, Buffer buffer){
         ++lastLogIndex;
-        LogEntry logEntry = new LogEntry().setIndex(lastLogIndex).setTerm(currentTerm).setNodeId(nodeId).setRequestId(requestId).setPayload(buffer);
+        LogEntry logEntry = new LogEntry().setIndex(lastLogIndex)
+                .setTerm(currentTerm).setNodeId(nodeId).setProposalId(proposalId).setLowestProposalId(lowestProposalId).setPayload(buffer);
         logEntryTreeMap.put(logEntry.getIndex(),logEntry);
 
         clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
@@ -113,7 +116,9 @@ public class LogList {
         releasePrefix(index);
 
         clusterDataStore.delLog(0,index+1);
-        firstLogIndex=index+1;
+        firstLogIndex=index;
+        if (index>lastLogIndex)
+            this.lastLogIndex=index;
         clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
     }
 
@@ -128,7 +133,7 @@ public class LogList {
         }
 
         clusterDataStore.delLog(start,lastLogIndex+1);
-        lastLogIndex=start-1;
+        lastLogIndex=start==0?0:start-1;
         clusterDataStore.saveIndex(firstLogIndex,lastLogIndex);
     }
 
@@ -150,9 +155,6 @@ public class LogList {
         return firstEntry==null?lastLogIndex+1:firstEntry.getKey();
     }
 
-    public int getFirstLogIndex() {
-        return firstLogIndex;
-    }
 
     public int getLastLogIndex() {
         return lastLogIndex;

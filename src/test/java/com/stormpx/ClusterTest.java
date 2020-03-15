@@ -1,6 +1,9 @@
 package com.stormpx;
 
 import com.stormpx.cluster.*;
+import com.stormpx.cluster.mqtt.ClusterClient;
+import com.stormpx.cluster.MqttCluster;
+import com.stormpx.cluster.mqtt.MqttStateService;
 import com.stormpx.store.ClusterDataStore;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.SessionStore;
@@ -52,7 +55,7 @@ public class ClusterTest {
         SessionStore sessionStore=new RocksDBSessionStore(vertx,dir);
         ClusterDataStore clusterDataStore=new RocksDBClusterDataStore(vertx,dir,nodeId);
 
-        MqttStateService stateService= new MqttStateService(vertx,sessionStore);
+        MqttStateService stateService= new MqttStateService(vertx);
         ClusterClient clusterClient=new ClusterClient(vertx, stateService,clusterDataStore);
         new MqttCluster(vertx,json,clusterDataStore,stateService,clusterClient)
             .start()
@@ -73,28 +76,28 @@ public class ClusterTest {
         LogList logList = new LogList(new MemoryClusterDataStore(),0,0);
         //add
         Buffer test = Buffer.buffer("test");
-        logList.addLog("asd",1,1,test);
-        logList.addLog("asd",1,2,test);
-        logList.addLog("asd",1,3,test);
-        logList.addLog("asd",1,4,test);
-        logList.addLog("asd",1,5,test);
-        logList.addLog("asd",1,6,test);
-        logList.addLog("asd",1,7,test);
-        logList.addLog("asd",1,8,test);
-        logList.addLog("asd",1,9,test);
-        logList.addLog("asd",1,10,test);
+        logList.addLog("asd",1,1,1,test);
+        logList.addLog("asd",1,2,1,test);
+        logList.addLog("asd",1,3,1,test);
+        logList.addLog("asd",1,4,1,test);
+        logList.addLog("asd",1,5,1,test);
+        logList.addLog("asd",1,6,1,test);
+        logList.addLog("asd",1,7,1,test);
+        logList.addLog("asd",1,8,1,test);
+        logList.addLog("asd",1,9,1,test);
+        logList.addLog("asd",1,10,1,test);
 
 
         logList.releasePrefix(3);
 
         logList.getLog(4)
             .onSuccess(log->{
-                Assertions.assertEquals(log.getRequestId(),4);
+                Assertions.assertEquals(log.getProposalId(),4);
             });
 
         logList.getLog(7)
                 .onSuccess(log->{
-                    Assertions.assertEquals(log.getRequestId(),7);
+                    Assertions.assertEquals(log.getProposalId(),7);
                 });
 
         logList.getLog(1,9)
@@ -102,7 +105,7 @@ public class ClusterTest {
                     Assertions.assertEquals(8,log.size());
                     int i=1;
                     for (LogEntry logEntry : log) {
-                        Assertions.assertEquals(logEntry.getRequestId(),i++);
+                        Assertions.assertEquals(logEntry.getProposalId(),i++);
                     }
                     System.out.println("21321");
                 });
@@ -113,7 +116,7 @@ public class ClusterTest {
         logList.getLog(1)
                 .onSuccess(log->{
 
-                    Assertions.assertEquals(log.getRequestId(),1);
+                    Assertions.assertEquals(log.getProposalId(),1);
                 });
 
         logList.releasePrefix(10);
@@ -121,48 +124,45 @@ public class ClusterTest {
         logList.getLog(10)
                 .onSuccess(log->{
 
-                    Assertions.assertEquals(log.getRequestId(),10);
+                    Assertions.assertEquals(log.getProposalId(),10);
                 });
 
 
-        logList.setLog(new LogEntry().setNodeId("123").setIndex(5).setTerm(2).setRequestId(15),true);
+        logList.setLog(new LogEntry().setNodeId("123").setIndex(5).setTerm(2).setProposalId(15),true);
 
         logList.getLog(5)
                 .onSuccess(log->{
-                    Assertions.assertEquals(log.getRequestId(),15);
+                    Assertions.assertEquals(log.getProposalId(),15);
                 });
 
-        logList.addLog("asdw",3,11,test);
+        logList.addLog("asdw",3,11,1,test);
 
-        Assertions.assertEquals(logList.getFirstLogIndex(),0);
         Assertions.assertEquals(logList.getLastLogIndex(),11);
 
         logList.getLastLog()
                 .onSuccess(log->{
-                    Assertions.assertEquals(log.getRequestId(),11);
+                    Assertions.assertEquals(log.getProposalId(),11);
                     Assertions.assertEquals(log.getTerm(),3);
                 });
 
         logList.truncateSuffix(8);
 
-        Assertions.assertEquals(logList.getFirstLogIndex(),0);
         Assertions.assertEquals(logList.getLastLogIndex(),7);
 
         logList.getLastLog()
                 .onSuccess(log->{
-                    Assertions.assertEquals(log.getRequestId(),7);
+                    Assertions.assertEquals(log.getProposalId(),7);
                     Assertions.assertEquals(log.getTerm(),1);
                 });
 
 
         logList.truncatePrefix(4);
 
-        Assertions.assertEquals(logList.getFirstLogIndex(),5);
         Assertions.assertEquals(logList.getLastLogIndex(),7);
         logList.getLog(5,6)
                 .onSuccess(log->{
                     Assertions.assertEquals(1,log.size());
-                    Assertions.assertEquals(log.get(0).getRequestId(),15);
+                    Assertions.assertEquals(log.get(0).getProposalId(),15);
                 });
 
     }

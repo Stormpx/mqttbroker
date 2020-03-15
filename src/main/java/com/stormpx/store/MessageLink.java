@@ -23,7 +23,7 @@ public class MessageLink {
     }
 
     public static MessageLink create(String id, String clientId, Integer packetId, boolean retain, MqttQoS qos, List<Integer> subscriptionId){
-        return new MessageLink(id, clientId, packetId, retain, qos, subscriptionId);
+        return new MessageLink(id, clientId, packetId==null?0:packetId, retain, qos, subscriptionId);
     }
 
     public boolean isRetain() {

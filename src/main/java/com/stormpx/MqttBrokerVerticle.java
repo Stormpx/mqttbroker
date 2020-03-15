@@ -25,7 +25,6 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.PemKeyCertOptions;
-import io.vertx.core.net.impl.VertxHandler;
 import io.vertx.core.shareddata.LocalMap;
 
 import java.time.Instant;
@@ -45,8 +44,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     protected Dispatcher dispatcher;
 
     protected Authenticator authenticator;
-
-    private TimeoutStream willTimer;
 
     private JsonObject mqttConfig;
 
@@ -380,7 +377,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                         dataStorage.setExpiryTimestamp(clientId,Instant.now().getEpochSecond()+ mqttContext.sessionExpiryInterval()));
                     }
                     mqttServer.holder().add(mqttContext);
-                    logger.info("client:{} accpet version:{} sessionExpiryInterval:{} keepalive:{}",mqttContext.session().clientIdentifier(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
+                    logger.info("client:{} accpet ip:{} version:{} sessionExpiryInterval:{} keepalive:{}",
+                            mqttContext.session().clientIdentifier(),mqttContext.session().auth().getSocketAddress().toString(),mqttContext.version(),mqttContext.sessionExpiryInterval(),mqttContext.keepAlive());
                     mqttContext.accept(b);
                     dispatcher.sessionAccept(clientId,!b);
                 });
@@ -509,7 +507,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                             MqttQoS mqttQoS = MqttQoS.valueOf(reasonCode.byteValue());
                             mqttSubscription.setQos(mqttQoS);
                             subscriptions.add(mqttSubscription);
-                            logger.debug("client:{} subscribe topic:{} qos:{} success", mqttContext.session().clientIdentifier(), mqttSubscription.getTopicFilter(), mqttSubscription.getQos());
+                            logger.info("client:{} subscribe topic:{} qos:{} success", mqttContext.session().clientIdentifier(), mqttSubscription.getTopicFilter(), mqttSubscription.getQos());
                             topicFilter.subscribe(mqttSubscription.getTopicFilter(), mqttContext.session().clientIdentifier(), mqttQoS, mqttSubscription.isNoLocal(), mqttSubscription.isRetainAsPublished(), message.getSubscriptionIdentifier());
                         }
                         //get retain message
@@ -544,7 +542,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                     }
 
                 } else {
-                    logger.info("client:{} authorize subscribe fail", mqttContext.session().clientIdentifier());
+                    logger.info("client:{} authorize subscribe failed", mqttContext.session().clientIdentifier());
                     mqttContext.handleException(ar.cause());
                 }
             });
@@ -566,7 +564,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     private void onUnSubscribe(MqttContext mqttContext, MqttUnSubscribeMessage message){
         List<String> mqttSubscriptions = message.getMqttSubscriptions();
         String clientId = mqttContext.session().clientIdentifier();
-        List<ReasonCode> reasonCodes = mqttSubscriptions.stream().peek(s -> topicFilter.unSubscribe(s, clientId)).peek(s -> logger.debug("client:{} unSubscribe topic:{}", clientId, s)).map(s -> ReasonCode.SUCCESS).collect(Collectors.toList());
+        List<ReasonCode> reasonCodes = mqttSubscriptions.stream().peek(s -> topicFilter.unSubscribe(s, clientId)).peek(s -> logger.info("client:{} unSubscribe topic:{}", clientId, s)).map(s -> ReasonCode.SUCCESS).collect(Collectors.toList());
 
         dispatcher.unSubscribeTopic(mqttContext.session().clientIdentifier(), mqttSubscriptions)
                 .onFailure(mqttContext::handleException)
@@ -591,7 +589,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 AuthResult<Boolean> authResult = aar.result();
                 List<StringPair> userProperty = authResult.getPairList();
                 if (authResult.getObject()) {
-                    logger.debug("clientId:{} publish message topic:{} qos:{} retain:{} payloadLength:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain(),message.getPayload().length());
+                    logger.info("clientId:{} publish message topic:{} qos:{} retain:{} payloadLength:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain(),message.getPayload().length());
                     JsonObject result = json.put("clientId", clientId);
                     if (!isQos0) {
                         String id = UUID.randomUUID().toString().replaceAll("-", "");
@@ -874,7 +872,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                             json.getBoolean("retainAsPublished",false),json.getInteger("identifier",0));
                                 });
                    }else{
-                       logger.info("fetch subscription fail :{}",ar.cause().getMessage());
+                       logger.error("fetch subscription failed",ar.cause());
                        mqttContext.handleException(ar.cause());
                    }
                 })
@@ -953,9 +951,6 @@ public class MqttBrokerVerticle extends AbstractVerticle {
     public void stop(Future<Void> stopFuture) throws Exception {
         if (mqttServer!=null){
             mqttServer.close();
-        }
-        if (willTimer!=null){
-            willTimer.cancel();
         }
         stopFuture.complete();
     }

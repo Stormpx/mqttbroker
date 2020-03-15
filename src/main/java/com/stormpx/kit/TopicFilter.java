@@ -1,6 +1,5 @@
 package com.stormpx.kit;
 
-import com.stormpx.ex.ProtocolErrorException;
 import io.netty.handler.codec.mqtt.MqttQoS;
 
 import java.util.*;
@@ -137,85 +136,107 @@ public class TopicFilter {
 
 
 
-    public Entry findQos(String clientId, String topic){
-        return topics.entrySet()
-                .stream()
-                .filter(e->e.getKey().matches(topic))
-                .map(Map.Entry::getValue)
-                .filter(subscribeObj -> subscribeObj.nonShareSubscribed(clientId))
-                .findAny()
-                .map(subscribeObj -> subscribeObj.fetchNonShareInfo(clientId))
-                .get();
-
-    }
 
 
 
 
     private class SubscribeObj{
 
-        Map<String,Map<String, Entry>> shareSubscribeMap;
-        Map<String, Entry> nonShareSubscribeMap;
+        private Map<String,SubscribeGroup> shareGroups;
+        private SubscribeGroup group;
 
         public SubscribeObj() {
-            shareSubscribeMap=new HashMap<>();
-            nonShareSubscribeMap =new HashMap<>();
+            this.shareGroups =new HashMap<>();
+            this.group=new SubscribeGroup();
         }
 
 
         public void addNonShare(String topicName,String clientId, MqttQoS qos,boolean noLocal,boolean retainAsPublished,int subscriptionIdentifier){
-            nonShareSubscribeMap.put(clientId, new Entry(topicName,clientId,noLocal,retainAsPublished,qos,subscriptionIdentifier,false));
+            Entry entry = new Entry(topicName, clientId, noLocal, retainAsPublished, qos, subscriptionIdentifier, false);
+            group.subscribe(entry);
         }
         public void addShare(String topicName,String shareName,String clientId, MqttQoS qos,boolean noLocal,boolean retainAsPublished,int subscriptionIdentifier){
-            Map<String, Entry> subscribeInfoMap = shareSubscribeMap.computeIfAbsent(shareName, (k) -> new HashMap<>());
-            subscribeInfoMap.put(clientId,new Entry(topicName,clientId,noLocal,retainAsPublished,qos,subscriptionIdentifier,true));
+            Entry entry = new Entry(topicName, clientId, noLocal, retainAsPublished, qos, subscriptionIdentifier, true);
+            SubscribeGroup subscribeGroup = shareGroups.computeIfAbsent(shareName, (k) -> new SubscribeGroup());
+            subscribeGroup.subscribe(entry);
         }
 
         public void removeNonShare(String clientId){
-            nonShareSubscribeMap.remove(clientId);
+            group.unSubscribe(clientId);
         }
         public void removeShare(String clientId){
-            shareSubscribeMap.values().forEach(m->{
-                    m.remove(clientId);
-            });
+            shareGroups.values().forEach(g->g.unSubscribe(clientId));
         }
+
         public void removeShare(String shareName,String clientId){
-            Map<String, Entry> map = shareSubscribeMap.get(shareName);
-            if (map!=null)
-                map.remove(clientId);
+            SubscribeGroup subscribeGroup = shareGroups.get(shareName);
+            if (subscribeGroup!=null)
+                subscribeGroup.unSubscribe(clientId);
         }
+
         public boolean nonShareSubscribed(String clientId){
-            return nonShareSubscribeMap.containsKey(clientId);
+            return group.subscribed(clientId);
         }
         public boolean shareSubscribed(String clientId,String shareName){
-            Map<String, Entry> subscribeInfoMap = shareSubscribeMap.get(shareName);
-            return subscribeInfoMap!=null&&subscribeInfoMap.containsKey(clientId);
+            SubscribeGroup subscribeGroup = shareGroups.get(shareName);
+            return subscribeGroup!=null&&subscribeGroup.subscribed(clientId);
         }
 
-        public Entry fetchNonShareInfo(String clientId){
-            return nonShareSubscribeMap.get(clientId);
-        }
-        public Entry fetchShareInfo(String clientId, String shareName){
-            Map<String, Entry> subscribeInfoMap = shareSubscribeMap.get(shareName);
-            if (subscribeInfoMap==null)
-                return null;
-            return subscribeInfoMap.get(clientId);
-        }
 
         public Collection<Entry> subscribeList(){
-            return nonShareSubscribeMap.values();
+            return group.getAll();
         }
         public Collection<Entry> shareSubscribeList(){
-            return shareSubscribeMap.values()
+            return shareGroups
+                    .values()
                     .stream()
-                    .map(map->map.values().stream().unordered().findAny())
+                    .map(SubscribeGroup::chooseOne)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .collect(Collectors.toList());
+
         }
 
         public boolean anySubscribed(){
-            return !nonShareSubscribeMap.isEmpty()||shareSubscribeMap.values().stream().anyMatch(map -> !map.isEmpty());
+            return !group.isEmpty()||shareGroups.values().stream().anyMatch(g -> !g.isEmpty());
+        }
+
+    }
+
+
+    private class SubscribeGroup{
+        private LinkedHashMap<String, Entry> map;
+
+        private int index=0;
+
+        public SubscribeGroup() {
+            this.map=new LinkedHashMap<>();
+        }
+
+        public void subscribe(Entry entry){
+            map.put(entry.clientId,entry);
+        }
+
+        public void unSubscribe(String clientId){
+            map.remove(clientId);
+        }
+
+        public Optional<Entry> chooseOne(){
+            if (index>=map.size())
+                index=0;
+            return map.values().stream().skip(index++).findFirst();
+        }
+
+        public Collection<Entry> getAll(){
+            return map.values();
+        }
+
+        public boolean subscribed(String clientId){
+            return map.containsKey(clientId);
+        }
+
+        public boolean isEmpty(){
+            return map.isEmpty();
         }
 
     }

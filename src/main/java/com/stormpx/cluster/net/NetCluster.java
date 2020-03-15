@@ -2,13 +2,13 @@ package com.stormpx.cluster.net;
 
 import com.stormpx.cluster.ClusterNode;
 import com.stormpx.cluster.message.AppendEntriesMessage;
+import com.stormpx.cluster.message.InstallSnapshotMessage;
 import com.stormpx.cluster.message.VoteMessage;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 public interface NetCluster {
@@ -19,7 +19,7 @@ public interface NetCluster {
 
     NetCluster appendEntriesRequestHandler(Handler<AppendEntriesRequest> handler);
 
-    NetCluster requestHandler(Handler<Request> handler);
+    NetCluster requestHandler(Handler<ClientRequest> handler);
 
     NetCluster readIndexRequestHandler(Handler<ReadIndexRequest> handler);
 
@@ -31,6 +31,9 @@ public interface NetCluster {
 
     NetCluster requestIndexResponseHandler(Handler<ReadIndexResponse> handler);
 
+    NetCluster installSnapshotRequestHandler(Handler<InstallSnapshotRequest> handler);
+
+    NetCluster installSnapshotResponseHandler(Handler<InstallSnapshotResponse> handler);
 
     ClusterNode getNode(String id);
 
@@ -42,10 +45,13 @@ public interface NetCluster {
 
     void request(String nodeId, AppendEntriesMessage appendEntriesMessage);
 
-    void request(String nodeId,int requestId, Buffer buffer);
+    void request(String nodeId, InstallSnapshotMessage installSnapshotMessage);
 
-    void request(Set<String> nodeIds, int requestId, Buffer buffer);
 
-    void requestReadIndex(String nodeId,String id);
+    void request(String nodeId, Buffer payload);
+
+    void request(Set<String> nodeIds, Buffer payload);
+
+    void requestReadIndex(String nodeId, String id);
 
 }

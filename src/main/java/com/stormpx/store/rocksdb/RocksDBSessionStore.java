@@ -1,5 +1,6 @@
 package com.stormpx.store.rocksdb;
 
+import com.stormpx.kit.FileUtil;
 import com.stormpx.kit.J;
 import com.stormpx.store.SessionObj;
 import com.stormpx.store.SessionStore;
@@ -28,15 +29,10 @@ public class RocksDBSessionStore implements SessionStore {
         this.vertx=vertx;
         String path = Paths.get(dir).normalize().toString() + "/session/default";
         File file = new File(path);
-        create(file);
+        FileUtil.create(file);
         this.rocksDB=RocksDB.open(path);
     }
 
-    private void create(File file){
-        if (!file.getParentFile().exists())
-            create(file.getParentFile());
-        file.mkdir();
-    }
 
     @Override
     public Future<SessionObj> get(String clientId) {

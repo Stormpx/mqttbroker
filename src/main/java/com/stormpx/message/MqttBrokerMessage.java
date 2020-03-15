@@ -10,7 +10,6 @@ import java.util.List;
 public class MqttBrokerMessage {
 
     private String id;
-    private String clientId;
     private Integer packetId;
     private String topic;
     private MqttQoS qos ;
@@ -30,15 +29,6 @@ public class MqttBrokerMessage {
 
     public MqttBrokerMessage setId(String id) {
         this.id = id;
-        return this;
-    }
-
-    public String getClientId() {
-        return clientId;
-    }
-
-    public MqttBrokerMessage setClientId(String clientId) {
-        this.clientId = clientId;
         return this;
     }
 
@@ -132,8 +122,6 @@ public class MqttBrokerMessage {
         return this;
     }
 
-    @Override
-    public String toString() {
-        return "MqttBrokerMessage{" + "id='" + id + '\'' + ", clientId='" + clientId + '\'' + ", packetId=" + packetId + ", topic='" + topic + '\'' + ", qos=" + qos + ", retain=" + retain + ", dup=" + dup + ", payload=" + payload + ", properties=" + properties + ", subscriptionId=" + subscriptionId + ", expiryTimestamp=" + expiryTimestamp + ", messageExpiryInterval=" + messageExpiryInterval + '}';
-    }
+
+
 }
