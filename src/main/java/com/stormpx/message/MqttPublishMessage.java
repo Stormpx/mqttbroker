@@ -1,5 +1,6 @@
 package com.stormpx.message;
 
+import com.stormpx.kit.J;
 import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttProperties;
 import com.stormpx.mqtt.MqttProperty;
@@ -78,7 +79,7 @@ public class MqttPublishMessage {
             JsonArray array = unalteredProperties.getUnalteredProperties()
                     .stream()
                     .map(MqttProperties::toJson)
-                    .collect(Collector.of(JsonArray::new, JsonArray::add, JsonArray::addAll, Collector.Characteristics.IDENTITY_FINISH));
+                    .collect(J.toJsonArray());
 
             jsonObject.put("properties", array);
         }

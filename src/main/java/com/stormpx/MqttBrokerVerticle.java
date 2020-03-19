@@ -751,7 +751,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                     .put("qos",Math.min(qos.value(),e.getMqttQoS().value()))
                                     .put("retain", e.isRetainAsPublished() && retain)
                                     .put("subscriptionId",e.getSubscriptionIdentifier()!=0?Collections.singletonList(e.getSubscriptionIdentifier()): J.EMPTY_ARRAY));
-                            //                            vertx.setTimer(40,v->ar.result().release());
+                            vertx.setTimer(80,v->ar.result().release());
 
                         }else{
                             logger.debug("client:{} get lock fail cause:{}",clientId,ar.cause());

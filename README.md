@@ -193,7 +193,7 @@ contentType: application/json
 
 ### PUB/SUB 鉴权url
 
-#####PUB 请求体
+PUB 请求体
 ```json
 {
   "action" : "pub",
@@ -216,7 +216,7 @@ contentType: application/json
 }
 ```
 ___
-#####SUB 请求体
+SUB 请求体
 ```json
 {
   "action" : "sub",
@@ -234,7 +234,7 @@ ___
   }
 }
 ```
-#####SUB 响应  
+SUB 响应  
  2xx代表通过 `topicFilters`为空代表全部通过 `topicFilters[n].topic!=null&&topicFilters[n].qos==null`代表拒绝此topic订阅  
  4xx代表全部拒绝 会忽略body里面的`topicFilters`  
  如果有响应`user_property`并且协议版本是MQTTv5的情况 会在SUBACK返回
