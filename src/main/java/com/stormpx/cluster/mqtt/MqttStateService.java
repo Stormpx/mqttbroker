@@ -29,6 +29,8 @@ public class MqttStateService implements StateService {
     private Vertx vertx;
     private MqttCluster mqttCluster;
 
+    private Handler<String> reSetSessionHandler;
+
     private Map<String, Function<JsonObject,Future<?>>> handlerMap;
 
 
@@ -214,6 +216,12 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
+
+    public MqttStateService reSetSessionHandler(Handler<String> reSetSessionHandler) {
+        this.reSetSessionHandler = reSetSessionHandler;
+        return this;
+    }
+
     @Override
     public void firePendingEvent(String leaderId) {
         List<Handler<Void>> pending = this.pending;
@@ -294,6 +302,9 @@ public class MqttStateService implements StateService {
                     mqttMetaData.clearSession(clientId);
                     if (!nodeId.equals(mqttCluster.id())){
                         //FIXME
+                        Handler<String> reSetSessionHandler = this.reSetSessionHandler;
+                        if (reSetSessionHandler!=null)
+                            reSetSessionHandler.handle(clientId);
                     }
                 }
                 mqttMetaData.saveSession(nodeId,clientId);
