@@ -86,8 +86,13 @@ public class MqttBroker {
         vertx.eventBus().registerDefaultCodec(TopicMatchResult.class, TopicMatchResult.CODEC);
         vertx.eventBus().registerDefaultCodec(SessionObj.class,SessionObj.CODEC);
         vertx.eventBus().registerDefaultCodec(MessageObj.class,MessageObj.CODEC);
-        return tryDeployClusterVerticle(vertx,config)
-                .compose(v->deployDispatcherVerticle(vertx, config))
+
+        if (clusterEnable(config)) {
+            config.put("isCluster",true);
+        }
+
+        return deployDispatcherVerticle(vertx, config)
+                .compose(v->tryDeployClusterVerticle(vertx,config))
                 .compose(v->deployBrokerVerticle(vertx, config))
                 .map((Void)null);
 
@@ -104,13 +109,12 @@ public class MqttBroker {
         if (id==null||port==null||port<0||port>66535||nodes==null||nodes.isEmpty()){
             return false;
         }else{
-            config.put("isCluster",true);
             return true;
         }
     }
 
     private static Future<String> tryDeployClusterVerticle(Vertx vertx,JsonObject config){
-        if (!clusterEnable(config)){
+        if (!config.getBoolean("isCluster",false)){
             return Future.succeededFuture("");
         }
         Promise<String> promise=Promise.promise();
@@ -131,13 +135,7 @@ public class MqttBroker {
         logger.info("verticle instance :{}",verticleInstance);
         DeploymentOptions mqtt = new DeploymentOptions().setInstances(verticleInstance).setConfig(config);
         Promise<String> promise=Promise.promise();
-        vertx.deployVerticle(MqttBrokerVerticle.class,mqtt,arr->{
-            if (arr.succeeded()){
-                promise.complete();
-            }else{
-                promise.fail(arr.cause());
-            }
-        });
+        vertx.deployVerticle(MqttBrokerVerticle.class,mqtt,promise);
         return promise.future();
     }
 

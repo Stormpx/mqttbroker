@@ -52,6 +52,7 @@ public class ClusterVerticle extends AbstractVerticle {
         this.stateService.addHandler("/message",this::requestMessage);
         this.stateService.addHandler("/takenover",this::takenOverSession);
         this.stateService.addHandler("/dispatcher",this::dispatcherMsg);
+        this.stateService.reSetSessionHandler(this::reSetSession);
 
         this.clusterClient=new ClusterClient(vertx,stateService,clusterDataStore);
         this.mqttCluster=new MqttCluster(vertx,cluster,clusterDataStore,stateService,clusterClient);
@@ -147,6 +148,10 @@ public class ClusterVerticle extends AbstractVerticle {
 
 
         mqttCluster.start().setHandler(startFuture);
+    }
+
+    private void reSetSession(String clientId) {
+        vertx.eventBus().send("_reset_session_",clientId);
     }
 
     private Future<Buffer> requestSession(JsonObject body) {

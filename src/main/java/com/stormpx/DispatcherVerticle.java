@@ -61,111 +61,92 @@ public class DispatcherVerticle extends AbstractVerticle {
             this.cluster=new Cluster(vertx);
         }
 
+        // dispatcher
+        Dispatcher.Consumer consumer = Dispatcher.Consumer(vertx);
 
-        vertx.eventBus().<String>localConsumer("_client_session_present")
-                .handler(message->{
-                    String clientId = message.body();
-                    sessionPresent(clientId)
-                            .setHandler(ar->{
-                               if (ar.succeeded()){
-                                   message.reply(ar.result());
-                               }else{
-                                   logger.error("",ar.cause());
-                                   message.fail(500,ar.cause().getMessage());
-                               }
-                            });
-                });
-
-
-        vertx.eventBus().<JsonObject>localConsumer("_client_accept_")
-                .handler(message->{
-                    JsonObject body = message.body();
-                    String clientId = body.getString("clientId");
-                    Boolean cleanSession = body.getBoolean("cleanSession",false);
-                    if (this.isCluster)
-                        cluster.proposal(ActionLog.saveSession(clusterId,clientId, cleanSession));
-                });
-
-
-        vertx.eventBus().<JsonObject>consumer("_session_taken_over_")
-                .handler(message->{
-                    JsonObject body = message.body();
-
-                    vertx.eventBus().publish("_mqtt_session_taken_over", body);
-
-                });
-
-
-        vertx.eventBus().<UnSafeJsonObject>localConsumer("_message_dispatcher_")
-                .handler(message->{
-                    JsonObject body = message.body().getJsonObject();
-                    messageDispatcher(body);
-                });
-
-
-        vertx.eventBus().<String>localConsumer("_topic_reload_")
-                .handler(message->{
-                    String clientId = message.body();
-                    fetchSubscription(clientId)
-                        .onFailure(t->message.fail(500,t.getMessage()))
-                        .onSuccess(jsonArray->{
-                            message.reply(jsonArray);
-                            topicSubscribe(new JsonObject().put("clientId",clientId).put("subscriptions",jsonArray),true);
-                        });
-                });
-
-        vertx.eventBus().<JsonObject>localConsumer("_topic_subscribe_")
-                .handler(message->{
-                    JsonObject body = message.body();
-                    topicSubscribe(body,false).setHandler(ar->{
+        consumer.sessionPresentHandler(message->{
+            String clientId = message.body();
+            sessionPresent(clientId)
+                    .setHandler(ar->{
                         if (ar.succeeded()){
-                            message.reply(null);
+                            message.reply(ar.result());
                         }else{
-                            logger.error("topicSubscribe failed",ar.cause());
+                            logger.error("check session present failed",ar.cause());
                             message.fail(500,ar.cause().getMessage());
                         }
                     });
-                });
+        });
 
-        vertx.eventBus().<JsonObject>localConsumer("_topic_unSubscribe_")
-                .handler(message->{
-                    JsonObject body = message.body();
-                    topicUnSubscribe(body)
-                        .setHandler(ar->{
-                            if (ar.succeeded()){
-                                message.reply(null);
-                            }else{
-                                logger.error("topicUnSubscribe failed",ar.cause());
-                                message.fail(500,ar.cause().getMessage());
-                            }
-                        });
+        consumer.sessionAcceptHandler(message->{
+            JsonObject body = message.body();
+            String clientId = body.getString("clientId");
+            Boolean cleanSession = body.getBoolean("cleanSession",false);
+            if (this.isCluster)
+                cluster.proposal(ActionLog.saveSession(clusterId,clientId, cleanSession));
+        });
 
-                });
+        consumer.takenOverSessionHandler(message->{
+            JsonObject body = message.body();
+            vertx.eventBus().publish("_mqtt_session_taken_over", body);
+        });
 
-        vertx.eventBus().<JsonObject>localConsumer("_retain_match_")
-                .handler(message->{
-                    JsonObject jsonObject = message.body();
-                    JsonArray jsonArray = jsonObject.getJsonArray("topicFilters");
-                    String address = jsonObject.getString("address");
-                    List<String> topicFilters = jsonArray.stream().map(Object::toString).collect(Collectors.toList());
+        consumer.dispatcherMessageHandler(message->{
+            JsonObject body = message.body().getJsonObject();
+            messageDispatcher(body);
+        });
+        consumer.reSubscribeHandler(message->{
+            String clientId = message.body();
+            fetchSubscription(clientId)
+                    .onFailure(t->message.fail(500,t.getMessage()))
+                    .onSuccess(jsonArray->{
+                        message.reply(jsonArray);
+                        topicSubscribe(new JsonObject().put("clientId",clientId).put("subscriptions",jsonArray),true);
+                    });
+        });
+        consumer.subscribeTopicHandler(message->{
+            JsonObject body = message.body();
+            topicSubscribe(body,false).setHandler(ar->{
+                if (ar.succeeded()){
+                    message.reply(null);
+                }else{
+                    logger.error("topicSubscribe failed",ar.cause());
+                    message.fail(500,ar.cause().getMessage());
+                }
+            });
+        });
 
-                    retainMatch(address,topicFilters);
+        consumer.unSubscribeTopicHandler(message->{
+            JsonObject body = message.body();
+            topicUnSubscribe(body)
+                    .setHandler(ar->{
+                        if (ar.succeeded()){
+                            message.reply(null);
+                        }else{
+                            logger.error("topicUnSubscribe failed",ar.cause());
+                            message.fail(500,ar.cause().getMessage());
+                        }
+                    });
+        });
 
-                });
+        consumer.matchRetainMessageHandler(message->{
+            JsonObject jsonObject = message.body();
+            JsonArray jsonArray = jsonObject.getJsonArray("topicFilters");
+            String address = jsonObject.getString("address");
+            List<String> topicFilters = jsonArray.stream().map(Object::toString).collect(Collectors.toList());
 
+            retainMatch(address,topicFilters);
+        });
 
+        consumer.resendMessageHandler(message->{
+            JsonObject body = message.body();
+            String address = body.getString("address");
+            String clientId = body.getString("clientId");
+            if (address==null||clientId==null)
+                return;
+            resendUnReleaseMessage(address,clientId);
+        });
 
-        vertx.eventBus().<JsonObject>localConsumer("_message_resend_")
-                .handler(message->{
-                    JsonObject body = message.body();
-                    String address = body.getString("address");
-                    String clientId = body.getString("clientId");
-                    if (address==null||clientId==null)
-                        return;
-                    resendUnReleaseMessage(address,clientId);
-
-                });
-
+        //store
         vertx.eventBus().consumer("_mqtt_store_")
                 .handler(message->{
                     String action = message.headers().get("action");
@@ -185,6 +166,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                 });
 
 
+        //cluster consumer
         vertx.eventBus().<JsonObject>localConsumer("_request_session_handler_")
                 .handler(message->{
                     JsonObject body = message.body();
@@ -215,6 +197,12 @@ public class DispatcherVerticle extends AbstractVerticle {
                 .handler(message->{
                     JsonObject body = message.body();
                     dispatcherMsg(body);
+                });
+
+        vertx.eventBus().<String>localConsumer("_reset_session_")
+                .handler(message->{
+                    String clientId = message.body();
+                    clearSession(new JsonObject().put("clientId",clientId));
                 });
 
             startFuture.complete();
