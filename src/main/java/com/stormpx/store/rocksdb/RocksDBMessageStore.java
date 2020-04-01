@@ -1,6 +1,5 @@
 package com.stormpx.store.rocksdb;
 
-import com.stormpx.kit.FileUtil;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.ObjCodec;
@@ -8,28 +7,24 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
-import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import org.rocksdb.*;
 
-import java.io.File;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class RocksDBMessageStore implements MessageStore {
     private final static Logger logger= LoggerFactory.getLogger(RocksDBMessageStore.class);
+
+    private ColumnFamilyHandle MESSAGE_COLUMN_FAMILY;
     private Vertx vertx;
     private RocksDB rocksDB;
 
-    public RocksDBMessageStore(Vertx vertx,String dir) throws RocksDBException {
+    public RocksDBMessageStore(Vertx vertx) {
         this.vertx = vertx;
-        String path = Paths.get(dir).normalize().toString() + "/message";
-        FileUtil.create(new File(path));
-        this.rocksDB=RocksDB.open(path);
+        this.rocksDB=Db.db();
+        this.MESSAGE_COLUMN_FAMILY=Db.messageColumnFamily();
     }
 
 
@@ -39,8 +34,8 @@ public class RocksDBMessageStore implements MessageStore {
         vertx.executeBlocking(p->{
             String prefix="retain-";
             Map<String,String> map=new HashMap<>();
-            RocksIterator rocksIterator = rocksDB.newIterator();
-            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);rocksIterator.next()){
+            RocksIterator rocksIterator = rocksDB.newIterator(MESSAGE_COLUMN_FAMILY,new ReadOptions().setPrefixSameAsStart(true));
+            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid();rocksIterator.next()){
                 String topic = new String(rocksIterator.key()).substring(prefix.length());
                 String id = new String(rocksIterator.value());
                 map.put(topic,id);
@@ -56,13 +51,13 @@ public class RocksDBMessageStore implements MessageStore {
         Promise<MessageObj> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
-                byte[] bytes = rocksDB.get(id.getBytes());
+                byte[] bytes = rocksDB.get(MESSAGE_COLUMN_FAMILY,id.getBytes());
                 MessageObj messageObj = new ObjCodec().decodeMessageObj(Buffer.buffer(bytes));
                 p.complete(messageObj);
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
             }
-        },promise);
+        },false,promise);
         return promise.future();
     }
 
@@ -71,7 +66,7 @@ public class RocksDBMessageStore implements MessageStore {
         vertx.executeBlocking(p->{
             try {
                 Buffer buffer = new ObjCodec().encodeMessageObj(messageObj);
-                rocksDB.put(id.getBytes(),buffer.getBytes());
+                rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),id.getBytes(),buffer.getBytes());
             } catch (RocksDBException e) {
                 logger.error("set id:{} messageObj:{} fail",e,id,messageObj);
             }
@@ -81,15 +76,19 @@ public class RocksDBMessageStore implements MessageStore {
     @Override
     public void del(String id) {
         vertx.executeBlocking(p->{
-            try {
-                WriteBatch writeBatch = new WriteBatch();
-                rocksDB.delete(id.getBytes());
-                rocksDB.delete(("refcnt-"+id).getBytes());
-                rocksDB.write(new WriteOptions().setSync(false),writeBatch);
-            } catch (RocksDBException e) {
-                logger.error("del id:{} fail",id);
-            }
+            delete(id);
         },null);
+    }
+
+    private void delete(String id){
+        try {
+            WriteBatch writeBatch = new WriteBatch();
+            writeBatch.delete(MESSAGE_COLUMN_FAMILY,id.getBytes());
+            writeBatch.delete(MESSAGE_COLUMN_FAMILY,("refcnt-"+id).getBytes());
+            rocksDB.write(Db.asyncWriteOptions(),writeBatch);
+        } catch (RocksDBException e) {
+            logger.error("del id:{} fail",id);
+        }
     }
 
     @Override
@@ -101,10 +100,10 @@ public class RocksDBMessageStore implements MessageStore {
                 byte[] value = rocksDB.get(key.getBytes());
                 if (id==null){
                     //del
-                    rocksDB.delete(key.getBytes());
+                    rocksDB.delete(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes());
                 }else{
                     //put
-                    rocksDB.put(key.getBytes(),id.getBytes());
+                    rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),id.getBytes());
                 }
                 p.complete(value==null?null:new String(value));
             } catch (Exception e) {
@@ -113,6 +112,7 @@ public class RocksDBMessageStore implements MessageStore {
         },promise);
         return promise.future();
     }
+
 
     @Override
     public Future<Integer> addAndGetRefCnt(String id, int d) {
@@ -123,14 +123,19 @@ public class RocksDBMessageStore implements MessageStore {
                 Integer r=null;
                 synchronized(key.intern()) {
                     byte[] keyBytes = key.getBytes();
-                    byte[] value = rocksDB.get(keyBytes);
+                    byte[] value = rocksDB.get(MESSAGE_COLUMN_FAMILY,keyBytes);
                     int count =0;
                     if (value != null) {
                         count = Buffer.buffer(value).getInt(0);
                     }
                     count += d;
                     r=count;
-                    rocksDB.put(keyBytes, Buffer.buffer().appendInt(count).getBytes());
+                    if (r<=0){
+//                        System.out.println(++i);
+                        delete(id);
+                    }else{
+                        rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),keyBytes, Buffer.buffer().appendInt(count).getBytes());
+                    }
                 }
                 p.complete(r);
             } catch (RocksDBException e) {

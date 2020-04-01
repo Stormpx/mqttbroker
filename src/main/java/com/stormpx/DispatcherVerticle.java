@@ -5,6 +5,7 @@ import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.cluster.mqtt.ClusterClient;
 import com.stormpx.kit.*;
 import com.stormpx.store.*;
+import com.stormpx.store.rocksdb.Db;
 import com.stormpx.store.rocksdb.RocksDBMessageStore;
 import com.stormpx.store.rocksdb.RocksDBSessionStore;
 import io.netty.handler.codec.mqtt.MqttQoS;
@@ -49,8 +50,9 @@ public class DispatcherVerticle extends AbstractVerticle {
             return;
         }
         logger.info("save dir :{}",saveDir);
-        this.messageStore=new RocksDBMessageStore(vertx,saveDir);
-        this.sessionStore=new RocksDBSessionStore(vertx,saveDir);
+        Db.initialize(saveDir);
+        this.sessionStore=new RocksDBSessionStore(vertx);
+        this.messageStore=new RocksDBMessageStore(vertx);
 
         this.isCluster = config.getBoolean("isCluster",false);
         if (isCluster){
@@ -258,16 +260,25 @@ public class DispatcherVerticle extends AbstractVerticle {
         Future<Void> releaseLink = releaseLink(clientId);
         Future<Void> future=sessionStore.fetchSubscription(clientId)
                     .compose(array->{
-                        if (array==null)
-                            return Future.succeededFuture();
-                        List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
-                        return topicUnSubscribe(new JsonObject().put("clientId",clientId).put("topics",topicFilter));
+                        if (array!=null) {
+                            List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
+                            this.topicFilter.clearSubscribe(clientId);
+                            if (isCluster) {
+                                List<String> unSubscribeList = topicFilter.stream().filter(tf -> !this.topicFilter.anySubscribed(tf)).collect(Collectors.toList());
+                                if (!unSubscribeList.isEmpty()) {
+                                    ActionLog log = ActionLog.unSubscribe(clusterId, unSubscribeList);
+                                    cluster.proposal(log);
+                                }
+                            }
+                        }
+                        return Future.succeededFuture();
                     });
 
         CompositeFuture.all(releaseLink,future)
                 .setHandler(ar->{
                     if (ar.succeeded()){
-                        sessionStore.del(clientId).onComplete(promise);
+                        sessionStore.del(clientId)
+                                .onComplete(promise);
                         if (isCluster){
                             cluster.proposal(ActionLog.delSession(clusterId,clientId));
                         }
@@ -286,12 +297,14 @@ public class DispatcherVerticle extends AbstractVerticle {
                     promise.fail(t);
                 })
                 .onSuccess(list->{
-                    if (list==null) {
+                    if (list==null||list.isEmpty()) {
                         promise.complete();
                         return;
                     }
-                    List<Future> futures=list.stream().filter(json->json.containsKey("id"))
+                    List<Future> futures=list.stream()
+                            .filter(json->json.containsKey("id"))
                             .map(json->json.getString("id"))
+                            .filter(Objects::nonNull)
                             .map(id-> modifyRefCnt(id,-1))
                             .collect(Collectors.toList());
                     CompositeFuture.all(futures)
@@ -487,7 +500,6 @@ public class DispatcherVerticle extends AbstractVerticle {
                 .onFailure(t->{})
                 .onSuccess(i->{
                    if (i!=null&&i<=0){
-                       messageStore.del(id);
                        if (isCluster){
                            cluster.proposal(ActionLog.delMessage(clusterId,id));
                        }
@@ -740,6 +752,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
     @Override
     public void stop(Future<Void> stopFuture) throws Exception {
+        Db.destroy();
         stopFuture.complete();
     }
 }

@@ -43,7 +43,7 @@ public class ClusterVerticle extends AbstractVerticle {
         JsonObject nodes = cluster.getJsonObject("nodes");
         cluster.put(Constants.SAVE_DIR,saveDir);
         //cluster enable
-        this.clusterDataStore=new RocksDBClusterDataStore(vertx,saveDir,id);
+        this.clusterDataStore=new RocksDBClusterDataStore(vertx,id);
         this.stateService=new MqttStateService(vertx);
 
         //            this.stateService.addHandler("/store/sync",this::);
