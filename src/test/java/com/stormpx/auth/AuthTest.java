@@ -15,6 +15,7 @@ import com.hivemq.client.mqtt.mqtt5.message.publish.puback.Mqtt5PubAck;
 import com.hivemq.client.mqtt.mqtt5.message.publish.puback.Mqtt5PubAckReasonCode;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.suback.Mqtt5SubAck;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.suback.Mqtt5SubAckReasonCode;
+import com.stormpx.MqttBroker;
 import com.stormpx.MqttBrokerVerticle;
 import com.stormpx.kit.UnSafeJsonObject;
 import io.netty.handler.codec.http.HttpHeaderValues;
@@ -45,7 +46,6 @@ public class AuthTest {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
         context.completeNow();
     }
 
@@ -189,12 +189,15 @@ public class AuthTest {
 
         }));
 
-
-        DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","http")
+        JsonObject config=new JsonObject().put("auth","http")
                 .put("appkey","appkey")
                 .put("http_authentication_url","http://localhost:9999/auth")
                 .put("http_authorization_url","http://localhost:9999/aza")
-                .put(TCP,new JsonObject().put("port",11883)));
+                .put(TCP,new JsonObject().put("port",11883));
+
+
+        DeploymentOptions mqtt = new DeploymentOptions()
+                .setConfig(config);
 
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
             try {

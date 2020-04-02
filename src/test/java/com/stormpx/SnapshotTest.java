@@ -39,8 +39,8 @@ public class SnapshotTest {
     @Test
     public void test(Vertx vertx, VertxTestContext context){
         String dir = System.getProperty("user.dir");
-        FileUtil.create(new File(dir+"/data"));
-        Snapshot snapshot = new Snapshot(vertx, "node1", 0, 0, dir + "/data");
+        FileUtil.create(new File(dir+"/snapshot"));
+        Snapshot snapshot = new Snapshot(vertx, "node1", 0, 0, dir + "/snapshot");
 
         snapshot.snapshotHandler(meta->{
             Assertions.assertEquals(meta.getIndex(),100);
@@ -104,7 +104,7 @@ public class SnapshotTest {
 
     public void nextTest(Vertx vertx, VertxTestContext context){
         String dir = System.getProperty("user.dir");
-        Snapshot snapshot = new Snapshot(vertx, "node2", 100, 2, dir+"/data");
+        Snapshot snapshot = new Snapshot(vertx, "node2", 100, 2, dir+"/snapshot");
         Checkpoint checkpoint = context.checkpoint(2);
 
         byte[] bytes = new byte[4096];
@@ -156,31 +156,32 @@ public class SnapshotTest {
                             });
                 }));
 
-
     }
 
 
     @Test
     public void competitionTest(Vertx vertx,VertxTestContext context){
         String dir = System.getProperty("user.dir");
-        FileUtil.create(new File(dir+"/data"));
-        Snapshot snapshot = new Snapshot(vertx, "node1", 0, 2, dir + "/data");
-        Checkpoint checkpoint = context.checkpoint(2);
+        FileUtil.create(new File(dir+"/snapshot"));
+        Snapshot snapshot = new Snapshot(vertx, "node1", 0, 2, dir + "/snapshot");
+        Checkpoint checkpoint = context.checkpoint(3);
         Buffer correctBuffer=Buffer.buffer("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         snapshot.snapshotHandler(meta->{
             Assertions.assertEquals(meta.getIndex(),200);
             Assertions.assertEquals(meta.getTerm(),3);
             Assertions.assertEquals(meta.getNodeId(),"node3");
-            System.out.println(Json.encodePrettily(meta));
+            System.out.println("final "+Json.encodePrettily(meta));
             snapshot.reader("node1")
                     .setHandler(context.succeeding(reader->{
                         reader.readAll()
                                 .setHandler(context.succeeding(b->{
                                     System.out.println(b.toString());
                                     Assertions.assertEquals(b.toString(),correctBuffer.toString());
+                                    Assertions.assertNull(snapshot.writerContext());
+                                    Assertions.assertFalse(snapshot.snapshotting());
                                     reader.done();
-
+                                    checkpoint.flag();
                                 }));
 
                     }));
@@ -189,11 +190,12 @@ public class SnapshotTest {
         snapshot.createWriterContext("node2",150,2)
                 .getWriter()
                 .setHandler(context.succeeding(writer->{
-                    writer.write(Buffer.buffer("whatever"));
-                    if (writer.isEnd()){
+                    System.out.println("123");
+                    if (writer.isEnd()) {
                         checkpoint.flag();
-                    }else {
-                        writer.end().setHandler(context.succeeding(v -> {
+                    } else {
+                        writer.write(Buffer.buffer("whatever"));
+                        writer.end().setHandler(context.failing(v -> {
                             checkpoint.flag();
                         }));
                     }
@@ -202,6 +204,7 @@ public class SnapshotTest {
         snapshot.createWriterContext("node3",200,3)
                 .getWriter()
                 .setHandler(context.succeeding(writer->{
+                    System.out.println(222);
                     writer.write(correctBuffer);
                     if (writer.isEnd()){
                         checkpoint.flag();

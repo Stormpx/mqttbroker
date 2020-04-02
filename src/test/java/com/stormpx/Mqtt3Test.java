@@ -42,8 +42,8 @@ public class Mqtt3Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,"D:\\foo/")).setHandler(context.completing());
+        String userDir=System.getProperty("user.dir");
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt3")).setHandler(context.completing());
 
 
     }

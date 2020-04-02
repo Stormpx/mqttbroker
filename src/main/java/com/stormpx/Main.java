@@ -16,7 +16,11 @@ public class Main {
     public static void main(String[] args) throws RocksDBException {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
 
-        Vertx vertx = Vertx.vertx(new VertxOptions().setWarningExceptionTime(1).setMaxWorkerExecuteTimeUnit(TimeUnit.SECONDS).setMaxWorkerExecuteTime(1).setMaxWorkerExecuteTimeUnit(TimeUnit.SECONDS));
+        Vertx vertx = Vertx.vertx(new VertxOptions()
+                .setWarningExceptionTime(3)
+                .setMaxWorkerExecuteTimeUnit(TimeUnit.SECONDS)
+                .setMaxWorkerExecuteTime(3)
+                .setMaxWorkerExecuteTimeUnit(TimeUnit.SECONDS));
         vertx.exceptionHandler(Throwable::printStackTrace);
         MqttBroker.start(vertx,args)
                 .setHandler(ar->{

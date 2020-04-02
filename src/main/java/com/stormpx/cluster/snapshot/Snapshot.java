@@ -8,6 +8,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.file.AsyncFile;
 import io.vertx.core.file.CopyOptions;
 import io.vertx.core.file.OpenOptions;
+import io.vertx.core.json.Json;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
@@ -131,6 +132,7 @@ public class Snapshot {
             String path = snapshotWriter.getPath();
             SnapshotMeta snapshotMeta = snapshotWriter.getSnapshotMeta();
             Promise<Void> promise = ar.result();
+
             if (ar.succeeded() && this.snapshotContext.getSnapshotMeta().getNodeId().equals(snapshotMeta.getNodeId())) {
                 // wait all reader done
                 onSafe(v->{
@@ -164,6 +166,7 @@ public class Snapshot {
                 if (ar.succeeded())
                     promise.tryFail(String.format("current snapshotWriter nodeId:%s != writer nodeId %s",
                             this.snapshotContext.getSnapshotMeta().getNodeId(),snapshotMeta.getNodeId()));
+
                 drop(snapshotMeta.getNodeId());
                 vertx.fileSystem().delete(path, r -> { });
             }
@@ -177,7 +180,9 @@ public class Snapshot {
         SnapshotContext snapshotContext = new SnapshotContext(snapshotMeta);
 
         SnapshotContext context = this.snapshotContext;
-
+        if (context!=null)
+            context.getWriter().onSuccess(SnapshotWriter::end);
+        this.snapshotContext=snapshotContext;
         Future<SnapshotWriter> snapshotWriterFuture = createTempFile()
                 .compose(path -> openFile(path).map(af -> Values2.values(path, af)))
                 .map(value -> {
@@ -186,22 +191,19 @@ public class Snapshot {
                     SnapshotWriter snapshotWriter = new SnapshotWriter(snapshotMeta, path,af);
                     handleWriterFuture(snapshotWriter);
 
-                    if (context!=null)
-                        context.getWriter().onSuccess(SnapshotWriter::end);
-
                     return snapshotWriter;
                 }).onFailure(t -> writeSnapshot = false);
 
         snapshotContext.setWriterFuture(snapshotWriterFuture);
 
-        this.snapshotContext=snapshotContext;
+
 
         return snapshotContext;
 
     }
 
     public void drop(String id){
-        if (this.snapshotContext.getSnapshotMeta().getNodeId().equals(id)){
+        if (this.snapshotContext!=null&&this.snapshotContext.getSnapshotMeta().getNodeId().equals(id)){
             this.snapshotContext=null;
             this.writeSnapshot=false;
         }
