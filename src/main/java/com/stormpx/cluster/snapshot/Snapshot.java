@@ -133,7 +133,7 @@ public class Snapshot {
             SnapshotMeta snapshotMeta = snapshotWriter.getSnapshotMeta();
             Promise<Void> promise = ar.result();
 
-            if (ar.succeeded() && this.snapshotContext.getSnapshotMeta().getNodeId().equals(snapshotMeta.getNodeId())) {
+            if (ar.succeeded() && this.snapshotContext!=null&&this.snapshotContext.getSnapshotMeta().getNodeId().equals(snapshotMeta.getNodeId())) {
                 // wait all reader done
                 onSafe(v->{
                     drop(snapshotMeta.getNodeId());
@@ -163,10 +163,14 @@ public class Snapshot {
                     this.safetyHandler=null;
                 });
             } else {
-                if (ar.succeeded())
-                    promise.tryFail(String.format("current snapshotWriter nodeId:%s != writer nodeId %s",
-                            this.snapshotContext.getSnapshotMeta().getNodeId(),snapshotMeta.getNodeId()));
-
+                if (ar.succeeded()) {
+                    if (this.snapshotContext==null) {
+                        promise.tryFail("write finished");
+                    }else{
+                        promise.tryFail(String.format("current snapshotWriter nodeId:%s != writer nodeId %s",
+                                this.snapshotContext.getSnapshotMeta().getNodeId(), snapshotMeta.getNodeId()));
+                    }
+                }
                 drop(snapshotMeta.getNodeId());
                 vertx.fileSystem().delete(path, r -> { });
             }

@@ -75,71 +75,69 @@ public class AuthTest {
                                         ))
                 );
 
-        DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","config")
+        MqttBroker.start(vertx,new JsonObject().put("auth","config")
                 .put("users",users)
                 .put("acl",acl)
-                .put(TCP,new JsonObject().put("port",11883)));
-
-        vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
-            try {
-                Mqtt5BlockingClient client1= MqttClient.builder()
-                        .identifier("client1")
-                        .serverHost("localhost")
-                        .serverPort(11883)
-                        .useMqttVersion5()
-                        .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
-                        .build().toBlocking();
-                Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
-                Assertions.assertEquals(mqtt5ConnAck.getReasonCode(), Mqtt5ConnAckReasonCode.SUCCESS);
-                Mqtt5UserProperties userProperties =
-                        mqtt5ConnAck.getUserProperties();
-                Mqtt5UserProperty mqtt5UserProperty = userProperties.asList().get(0);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
-                Mqtt5SubAck mqtt5SubAck = client1.subscribeWith().topicFilter("/test/1").qos(MqttQos.EXACTLY_ONCE).noLocal(true).send();
-
-                Assertions.assertEquals(mqtt5SubAck.getReasonCodes().get(0), Mqtt5SubAckReasonCode.GRANTED_QOS_1);
-                mqtt5UserProperty = mqtt5SubAck.getUserProperties().asList().get(0);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
-                Mqtt5PublishResult.Mqtt5Qos1Result publishResult =(Mqtt5PublishResult.Mqtt5Qos1Result) client1.publishWith().topic("/test/1").qos(MqttQos.AT_LEAST_ONCE).send();
-
-                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
-                Assertions.assertEquals(publishResult.getPubAck().getReasonCode(), Mqtt5PubAckReasonCode.SUCCESS);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
+                .put(TCP,new JsonObject().put("port",11883)))
+            .setHandler(context.succeeding(v->{
                 try {
-                    client1.publishWith().topic("/test/2").qos(MqttQos.AT_LEAST_ONCE).send();
-                    //                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
-                } catch (Mqtt5PubAckException e) {
-                    Mqtt5PubAck mqtt5PubAck = e.getMqttMessage();
-                    Assertions.assertEquals(mqtt5PubAck.getReasonCode(), Mqtt5PubAckReasonCode.NOT_AUTHORIZED);
-                }
-
-
-                try {
-                    Mqtt5BlockingClient client2= MqttClient.builder()
+                    Mqtt5BlockingClient client1= MqttClient.builder()
                             .identifier("client1")
                             .serverHost("localhost")
                             .serverPort(11883)
                             .useMqttVersion5()
                             .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                             .build().toBlocking();
-                    mqtt5ConnAck = client2.connectWith().simpleAuth().username("client2").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
+                    Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
+                    Assertions.assertEquals(mqtt5ConnAck.getReasonCode(), Mqtt5ConnAckReasonCode.SUCCESS);
+                    Mqtt5UserProperties userProperties =
+                            mqtt5ConnAck.getUserProperties();
+                    Mqtt5UserProperty mqtt5UserProperty = userProperties.asList().get(0);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
 
-                } catch (Mqtt5ConnAckException e) {
+                    Mqtt5SubAck mqtt5SubAck = client1.subscribeWith().topicFilter("/test/1").qos(MqttQos.EXACTLY_ONCE).noLocal(true).send();
 
-                    Assertions.assertEquals(e.getMqttMessage().getReasonCode(), Mqtt5ConnAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
+                    Assertions.assertEquals(mqtt5SubAck.getReasonCodes().get(0), Mqtt5SubAckReasonCode.GRANTED_QOS_1);
+                    mqtt5UserProperty = mqtt5SubAck.getUserProperties().asList().get(0);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
+
+                    Mqtt5PublishResult.Mqtt5Qos1Result publishResult =(Mqtt5PublishResult.Mqtt5Qos1Result) client1.publishWith().topic("/test/1").qos(MqttQos.AT_LEAST_ONCE).send();
+
+                    mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
+                    Assertions.assertEquals(publishResult.getPubAck().getReasonCode(), Mqtt5PubAckReasonCode.SUCCESS);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
+
+                    try {
+                        client1.publishWith().topic("/test/2").qos(MqttQos.AT_LEAST_ONCE).send();
+                        //                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
+                    } catch (Mqtt5PubAckException e) {
+                        Mqtt5PubAck mqtt5PubAck = e.getMqttMessage();
+                        Assertions.assertEquals(mqtt5PubAck.getReasonCode(), Mqtt5PubAckReasonCode.NOT_AUTHORIZED);
+                    }
+
+
+                    try {
+                        Mqtt5BlockingClient client2= MqttClient.builder()
+                                .identifier("client1")
+                                .serverHost("localhost")
+                                .serverPort(11883)
+                                .useMqttVersion5()
+                                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
+                                .build().toBlocking();
+                        mqtt5ConnAck = client2.connectWith().simpleAuth().username("client2").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
+
+                    } catch (Mqtt5ConnAckException e) {
+
+                        Assertions.assertEquals(e.getMqttMessage().getReasonCode(), Mqtt5ConnAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
+                    }
+
+                } catch (Exception e) {
+                    context.failNow(e);
                 }
-
-                vertx.undeploy(v,context.completing());
-            } catch (Exception e) {
-                context.failNow(e);
-            }
-        }));
+            }));
     }
 
     @Test
@@ -189,62 +187,57 @@ public class AuthTest {
 
         }));
 
-        JsonObject config=new JsonObject().put("auth","http")
+
+        MqttBroker.start(vertx,new JsonObject().put("auth","http")
                 .put("appkey","appkey")
                 .put("http_authentication_url","http://localhost:9999/auth")
                 .put("http_authorization_url","http://localhost:9999/aza")
-                .put(TCP,new JsonObject().put("port",11883));
-
-
-        DeploymentOptions mqtt = new DeploymentOptions()
-                .setConfig(config);
-
-        vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
-            try {
-                Mqtt5BlockingClient client1= MqttClient.builder()
-                        .identifier("client1")
-                        .serverHost("localhost")
-                        .serverPort(11883)
-                        .useMqttVersion5()
-                        .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
-                        .build().toBlocking();
-                Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
-                Assertions.assertEquals(mqtt5ConnAck.getReasonCode(), Mqtt5ConnAckReasonCode.SUCCESS);
-                Mqtt5UserProperties userProperties =
-                        mqtt5ConnAck.getUserProperties();
-                Mqtt5UserProperty mqtt5UserProperty = userProperties.asList().get(0);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
-                client1.subscribeWith().addSubscription().topicFilter("/test/4").qos(MqttQos.EXACTLY_ONCE).noLocal(true).applySubscription()
-                        .addSubscription().topicFilter("/test/5").qos(MqttQos.EXACTLY_ONCE).noLocal(true).applySubscription()
-                        .send();
-                Mqtt5SubAck mqtt5SubAck = client1.subscribeWith().topicFilter("/test/3").qos(MqttQos.EXACTLY_ONCE).noLocal(true).send();
-
-                Assertions.assertEquals(mqtt5SubAck.getReasonCodes().get(0), Mqtt5SubAckReasonCode.GRANTED_QOS_1);
-                mqtt5UserProperty = mqtt5SubAck.getUserProperties().asList().get(0);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
-                Mqtt5PublishResult.Mqtt5Qos1Result publishResult =(Mqtt5PublishResult.Mqtt5Qos1Result) client1.publishWith().topic("/test/1").qos(MqttQos.AT_LEAST_ONCE).send();
-
-                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
-                Assertions.assertEquals(publishResult.getPubAck().getReasonCode(), Mqtt5PubAckReasonCode.SUCCESS);
-                Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
-                Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
-
+                .put(TCP,new JsonObject().put("port",11883)))
+            .setHandler(context.succeeding(v->{
                 try {
-                    client1.publishWith().topic("/test/2").qos(MqttQos.AT_LEAST_ONCE).send();
-                    //                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
-                } catch (Mqtt5PubAckException e) {
-                    Mqtt5PubAck mqtt5PubAck = e.getMqttMessage();
-                    Assertions.assertEquals(mqtt5PubAck.getReasonCode(), Mqtt5PubAckReasonCode.NOT_AUTHORIZED);
+                    Mqtt5BlockingClient client1= MqttClient.builder()
+                            .identifier("client1")
+                            .serverHost("localhost")
+                            .serverPort(11883)
+                            .useMqttVersion5()
+                            .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
+                            .build().toBlocking();
+                    Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
+                    Assertions.assertEquals(mqtt5ConnAck.getReasonCode(), Mqtt5ConnAckReasonCode.SUCCESS);
+                    Mqtt5UserProperties userProperties =
+                            mqtt5ConnAck.getUserProperties();
+                    Mqtt5UserProperty mqtt5UserProperty = userProperties.asList().get(0);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
+
+                    client1.subscribeWith().addSubscription().topicFilter("/test/4").qos(MqttQos.EXACTLY_ONCE).noLocal(true).applySubscription()
+                            .addSubscription().topicFilter("/test/5").qos(MqttQos.EXACTLY_ONCE).noLocal(true).applySubscription()
+                            .send();
+                    Mqtt5SubAck mqtt5SubAck = client1.subscribeWith().topicFilter("/test/3").qos(MqttQos.EXACTLY_ONCE).noLocal(true).send();
+
+                    Assertions.assertEquals(mqtt5SubAck.getReasonCodes().get(0), Mqtt5SubAckReasonCode.GRANTED_QOS_1);
+                    mqtt5UserProperty = mqtt5SubAck.getUserProperties().asList().get(0);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
+
+                    Mqtt5PublishResult.Mqtt5Qos1Result publishResult =(Mqtt5PublishResult.Mqtt5Qos1Result) client1.publishWith().topic("/test/1").qos(MqttQos.AT_LEAST_ONCE).send();
+
+                    mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
+                    Assertions.assertEquals(publishResult.getPubAck().getReasonCode(), Mqtt5PubAckReasonCode.SUCCESS);
+                    Assertions.assertEquals(mqtt5UserProperty.getName().toString(),"key");
+                    Assertions.assertEquals(mqtt5UserProperty.getValue().toString(),"value");
+
+                    try {
+                        client1.publishWith().topic("/test/2").qos(MqttQos.AT_LEAST_ONCE).send();
+                        //                mqtt5UserProperty =publishResult.getPubAck().getUserProperties().asList().get(0);
+                    } catch (Mqtt5PubAckException e) {
+                        Mqtt5PubAck mqtt5PubAck = e.getMqttMessage();
+                        Assertions.assertEquals(mqtt5PubAck.getReasonCode(), Mqtt5PubAckReasonCode.NOT_AUTHORIZED);
+                    }
+                } catch (Exception e) {
+                    context.failNow(e);
                 }
-                vertx.undeploy(v,context.completing());
-            } catch (Exception e) {
-                context.failNow(e);
-            }
-        }));
+            }));
 
 
     }
