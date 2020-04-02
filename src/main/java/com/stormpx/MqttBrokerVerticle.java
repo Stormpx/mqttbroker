@@ -315,6 +315,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
      * and handle cleanSession
      * @param mqttContext
      */
+    private volatile  int ia=0;
+
     private void handleConnection(MqttContext mqttContext){
 
         var ref=new Object(){
@@ -332,7 +334,9 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                                 mqttContext.session().removePacketId(id);
                             });
                 })
-                .publishAcknowledgeHandler(id -> dataStorage.release(mqttContext.session().clientIdentifier(), id))
+                .publishAcknowledgeHandler(id -> {
+                    dataStorage.release(mqttContext.session().clientIdentifier(), id);
+                })
                 .publishReceiveHandler(id -> dataStorage.receive(mqttContext.session().clientIdentifier(), id))
                 .publishCompleteHandler(id -> dataStorage.release(mqttContext.session().clientIdentifier(), id))
                 .disconnectHandler(message -> {
@@ -589,7 +593,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
                 AuthResult<Boolean> authResult = aar.result();
                 List<StringPair> userProperty = authResult.getPairList();
                 if (authResult.getObject()) {
-                    logger.info("clientId:{} publish message topic:{} qos:{} retain:{} payloadLength:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain(),message.getPayload().length());
+//                    logger.info("clientId:{} publish message topic:{} qos:{} retain:{} payloadLength:{}", clientId, message.getTopic(), message.getQos().value(), message.isRetain(),message.getPayload().length());
                     JsonObject result = json.put("clientId", clientId);
                     if (!isQos0) {
                         String id = UUID.randomUUID().toString().replaceAll("-", "");

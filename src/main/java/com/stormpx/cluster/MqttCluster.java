@@ -269,7 +269,7 @@ public class MqttCluster {
                         });
 
             }else{
-                // compare index if index newer than current snapshotWriter index replaced
+                // compare index if index newer than current snapshotWriter index replace
                 logger.debug("snapshotting id:{} requset leaderId:{}",snapshotContext.getSnapshotMeta().getNodeId(),installSnapshotMessage.getLeaderId());
                 snapshotContext.getWriter()
                         .onSuccess(snapshotWriter->{

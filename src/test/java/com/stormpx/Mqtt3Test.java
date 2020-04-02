@@ -22,8 +22,6 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import io.vertx.mqtt.MqttClient;
-import io.vertx.mqtt.MqttClientOptions;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -44,8 +42,8 @@ public class Mqtt3Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,"D:\\foo/")).setHandler(context.completing());
+        String userDir=System.getProperty("user.dir");
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt3")).setHandler(context.completing());
 
 
     }

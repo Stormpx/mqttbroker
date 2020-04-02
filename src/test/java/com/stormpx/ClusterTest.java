@@ -51,9 +51,9 @@ public class ClusterTest {
             entries.put("machine3","127.0.0.1:56423");
 
         String dir="D:\\rdb/"+nodeId;
-        MessageStore messageStore=new RocksDBMessageStore(vertx,dir);
-        SessionStore sessionStore=new RocksDBSessionStore(vertx,dir);
-        ClusterDataStore clusterDataStore=new RocksDBClusterDataStore(vertx,dir,nodeId);
+//        MessageStore messageStore=new RocksDBMessageStore(vertx,dir);
+//        SessionStore sessionStore=new RocksDBSessionStore(vertx,dir);
+        ClusterDataStore clusterDataStore=new RocksDBClusterDataStore(vertx,nodeId);
 
         MqttStateService stateService= new MqttStateService(vertx);
         ClusterClient clusterClient=new ClusterClient(vertx, stateService,clusterDataStore);

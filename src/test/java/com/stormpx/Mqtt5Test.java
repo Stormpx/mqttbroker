@@ -46,8 +46,8 @@ public class Mqtt5Test {
     static void beforeClass(Vertx vertx, VertxTestContext context) {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
-
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",6).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,"D:\\foo/")).setHandler(context.completing());
+        String userDir=System.getProperty("user.dir");
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",6).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt5")).setHandler(context.completing());
 
         /*DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{

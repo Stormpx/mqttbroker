@@ -22,15 +22,16 @@ import java.util.stream.Collectors;
 
 public class RocksDBClusterDataStore implements ClusterDataStore {
     private final static Logger logger= LoggerFactory.getLogger(RocksDBClusterDataStore.class);
+    private ColumnFamilyHandle CLUSTER_COLUMN_FAMILY;
 
     private Vertx vertx;
     private RocksDB rocksDB;
 
-    public RocksDBClusterDataStore(Vertx vertx,String dir,String id) throws RocksDBException {
+    public RocksDBClusterDataStore(Vertx vertx,String id) throws RocksDBException {
         this.vertx=vertx;
-        String path = Paths.get(dir).normalize().toString() + "/meta_data/"+id;
-        FileUtil.create(new File(path));
-        this.rocksDB=RocksDB.open(path);
+
+        this.rocksDB=Db.db();
+        this.CLUSTER_COLUMN_FAMILY = Db.clusterColumnFamily();
     }
 
 
@@ -39,7 +40,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public void setRequestId(int requestId) {
         vertx.executeBlocking(p->{
             try {
-                rocksDB.put("requestId".getBytes(),Buffer.buffer(4).appendInt(requestId).getBytes());
+                rocksDB.put(CLUSTER_COLUMN_FAMILY,"requestId".getBytes(),Buffer.buffer(4).appendInt(requestId).getBytes());
             } catch (RocksDBException e) {
                 logger.error("set requestId fail",e);
             }
@@ -54,7 +55,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         Promise<Integer> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
-                byte[] value = rocksDB.get("requestId".getBytes());
+                byte[] value = rocksDB.get(CLUSTER_COLUMN_FAMILY,"requestId".getBytes());
                 p.tryComplete(value==null?1:Buffer.buffer(value).getInt(0));
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
@@ -68,7 +69,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public void saveSnapshotMeta(SnapshotMeta snapshotMeta) {
         vertx.executeBlocking(p->{
             try {
-                rocksDB.put("snapshotMeta".getBytes(),snapshotMeta.encode().getBytes());
+                rocksDB.put(CLUSTER_COLUMN_FAMILY,"snapshotMeta".getBytes(),snapshotMeta.encode().getBytes());
             } catch (RocksDBException e) {
                 logger.error("save snapshotMeta fail",e);
             }
@@ -82,7 +83,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         Promise<SnapshotMeta> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
-                byte[] value = rocksDB.get("snapshotMeta".getBytes());
+                byte[] value = rocksDB.get(CLUSTER_COLUMN_FAMILY,"snapshotMeta".getBytes());
                 p.tryComplete(value==null?null:SnapshotMeta.decode(Buffer.buffer(value)));
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
@@ -95,7 +96,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public void saveIndex(int firstIndex, int lastIndex) {
         vertx.executeBlocking(p->{
             try {
-                rocksDB.put("index".getBytes(),new JsonObject().put("firstIndex",firstIndex).put("lastIndex",lastIndex).toBuffer().getBytes());
+                rocksDB.put(CLUSTER_COLUMN_FAMILY,"index".getBytes(),new JsonObject().put("firstIndex",firstIndex).put("lastIndex",lastIndex).toBuffer().getBytes());
             } catch (RocksDBException e) {
                 logger.error("set requestId fail",e);
             }
@@ -109,7 +110,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         Promise<JsonObject> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
-                byte[] value = rocksDB.get("index".getBytes());
+                byte[] value = rocksDB.get(CLUSTER_COLUMN_FAMILY,"index".getBytes());
                 p.tryComplete(value==null?null:Buffer.buffer(value).toJsonObject());
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
@@ -124,7 +125,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
 
         vertx.executeBlocking(p->{
             try {
-                rocksDB.put("state".getBytes(),state.toBuffer().getBytes());
+                rocksDB.put(CLUSTER_COLUMN_FAMILY,"state".getBytes(),state.toBuffer().getBytes());
             } catch (RocksDBException e) {
                 logger.error("save state fail",e);
             }
@@ -140,7 +141,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         Promise<JsonObject> promise=Promise.promise();
         vertx.executeBlocking(p->{
             try {
-                byte[] value = rocksDB.get("state".getBytes());
+                byte[] value = rocksDB.get(CLUSTER_COLUMN_FAMILY,"state".getBytes());
                 if (value==null){
                     p.complete();
                     return;
@@ -159,7 +160,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
     public Future<List<LogEntry>> logs() {
         Promise<List<LogEntry>> promise=Promise.promise();
         vertx.executeBlocking(p->{
-            RocksIterator rocksIterator = rocksDB.newIterator();
+            RocksIterator rocksIterator = rocksDB.newIterator(CLUSTER_COLUMN_FAMILY);
             rocksIterator.seekToFirst();
             List<LogEntry> logEntries=new ArrayList<>();
             while (rocksIterator.isValid()){
@@ -189,7 +190,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
                     keyList.add(("log-"+s).getBytes());
                     s++;
                 }
-                Map<byte[], byte[]> map = rocksDB.multiGet(keyList);
+                Map<byte[], byte[]> map = rocksDB.multiGet(Collections.singletonList(CLUSTER_COLUMN_FAMILY),keyList);
                 p.complete(map.values().stream().map(bytes -> LogEntry.decode(0,Buffer.buffer(bytes)))
                         .sorted(Comparator.comparingInt(LogEntry::getIndex))
                         .collect(Collectors.toList()));
@@ -207,7 +208,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
         vertx.executeBlocking(p->{
             try {
                 String key="log-"+logEntry.getIndex();
-                rocksDB.put(new WriteOptions().setSync(false),key.getBytes(),logEntry.encode().getBytes());
+                rocksDB.put(CLUSTER_COLUMN_FAMILY,new WriteOptions().setSync(false),key.getBytes(),logEntry.encode().getBytes());
             } catch (RocksDBException e) {
                 logger.error("save log fail",e);
             }
@@ -222,7 +223,7 @@ public class RocksDBClusterDataStore implements ClusterDataStore {
 
         vertx.executeBlocking(p->{
             try {
-                RocksIterator rocksIterator = rocksDB.newIterator();
+                RocksIterator rocksIterator = rocksDB.newIterator(CLUSTER_COLUMN_FAMILY,new ReadOptions().setPrefixSameAsStart(true));
                 WriteBatch batch = new WriteBatch();
                 for (rocksIterator.seek("log".getBytes());rocksIterator.isValid();rocksIterator.next()){
                     String key = new String(rocksIterator.key());

@@ -34,7 +34,9 @@ public class SnapshotWriter {
     }
 
     public Future<Void> end(){
-
+        if (end){
+            return Future.succeededFuture();
+        }
         Promise<Void> promise=Promise.promise();
         end=true;
         asyncFile.end(ar->{
