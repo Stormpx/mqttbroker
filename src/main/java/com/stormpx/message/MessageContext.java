@@ -1,8 +1,6 @@
 package com.stormpx.message;
 
-import io.vertx.core.net.impl.VertxHandler;
 
-import java.util.List;
 import java.util.Set;
 
 public class MessageContext {

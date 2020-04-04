@@ -43,7 +43,7 @@ public class MqttConnectionHolderImpl implements MqttConnectionHolder {
 
 
 
-    void handleWebSocket(NetSocket netSocket, Handler<MqttContext> handler, Handler<Throwable> exceptionHandler){
+    void handleNetSocket(NetSocket netSocket, Handler<MqttContext> handler, Handler<Throwable> exceptionHandler){
         MqttSessionOption mqttSessionOption = new MqttSessionOption();
         MqttSocket mqttSocket = MqttSocket.wrapper(netSocket, mqttSessionOption);
         handleNewConnect(mqttSocket,handler,exceptionHandler);

@@ -6,11 +6,9 @@ import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
-import io.vertx.core.impl.ConcurrentHashSet;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.*;
-import io.vertx.core.shareddata.AsyncMap;
 import io.vertx.core.shareddata.LocalMap;
 
 import java.util.HashSet;
@@ -91,7 +89,7 @@ public class MqttServerImpl implements MqttServer {
         this.netServer= vertx.createNetServer(netServerOptions.setUsePooledBuffers(false));
 
         this.netServer.connectHandler(netSocket->{
-            this.mqttConnectionHolder.handleWebSocket(netSocket,handler,exceptionHandler);
+            this.mqttConnectionHolder.handleNetSocket(netSocket,handler,exceptionHandler);
         });
         this.netServer.listen(ar->{
             if (ar.succeeded()){
