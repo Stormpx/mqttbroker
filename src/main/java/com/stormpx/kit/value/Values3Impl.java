@@ -26,4 +26,9 @@ public class Values3Impl<O1,O2,O3> implements Values3<O1,O2,O3> {
     public O3 getThree() {
         return o3;
     }
+
+    @Override
+    public <O4> Values4<O1, O2, O3, O4> toValues4(O4 t) {
+        return Values4.values(o1,o2,o3,t);
+    }
 }

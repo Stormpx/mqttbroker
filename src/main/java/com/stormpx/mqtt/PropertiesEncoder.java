@@ -45,43 +45,10 @@ public class PropertiesEncoder {
                         optionalProperties.add(mqttProperties);
                     }
             }
-            length+=getLength(mqttProperties);
+            length+=mqttProperties.getCodecLength();
         }
     }
 
-    /**
-     * getMqttPropertiesLength
-     * @param mqttProperties
-     * @return
-     */
-    private int getLength(MqttProperties mqttProperties){
-        MqttProperty property = mqttProperties.getProperty();
-        Object value = mqttProperties.getValue();
-        int length=1;
-        if (property.isByte()){
-            length+=1;
-        }else if (property.isBinaryData()){
-            ByteBuf data= (ByteBuf) value;
-            length+=2;
-            length+=data.readableBytes();
-        }else if (property.isFourByteInteger()){
-            length+=4;
-        }else if (property.isString()){
-            length+=2;
-            length+=MqttCodecUtil.encodeUtf8String(value.toString()).length;
-        }else if (property.isStringPair()){
-            StringPair pair= (StringPair) value;
-            length+=2;
-            length+=MqttCodecUtil.encodeUtf8String(pair.getKey()).length;
-            length+=2;
-            length+=MqttCodecUtil.encodeUtf8String(pair.getValue()).length;
-        }else if (property.isTwoByteInteger()){
-            length+=2;
-        }else if (property.isVariableByteInteger()){
-            length+=MqttCodecUtil.getVariableLength((Integer) value);
-        }
-        return length;
-    }
 
     /**
      * del optional properties
@@ -92,14 +59,14 @@ public class PropertiesEncoder {
         while (iterator.hasNext()){
             MqttProperties mqttProperties = iterator.next();
             if (mqttProperties.equals(properties)){
-                length-=getLength(mqttProperties);
+                length-=mqttProperties.getCodecLength();
                 iterator.remove();
                 return;
             }
         }
     }
 
-    public int getLength() {
+    public int getTotalLength() {
         return length;
     }
 

@@ -1,5 +1,8 @@
 package com.stormpx.store.rocksdb;
 
+import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.kit.Codec;
+import com.stormpx.store.BlockStore;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.MessageStore;
 import com.stormpx.store.ObjCodec;
@@ -14,135 +17,112 @@ import org.rocksdb.*;
 import java.util.HashMap;
 import java.util.Map;
 
-public class RocksDBMessageStore implements MessageStore {
-    private final static Logger logger= LoggerFactory.getLogger(RocksDBMessageStore.class);
+public class RocksDBMessageStore extends BlockStore implements MessageStore {
+    private final static Logger logger = LoggerFactory.getLogger(RocksDBMessageStore.class);
 
     private ColumnFamilyHandle MESSAGE_COLUMN_FAMILY;
     private Vertx vertx;
     private RocksDB rocksDB;
 
     public RocksDBMessageStore(Vertx vertx) {
+        super(vertx);
         this.vertx = vertx;
-        this.rocksDB=Db.db();
-        this.MESSAGE_COLUMN_FAMILY=Db.messageColumnFamily();
+        this.rocksDB = Db.db();
+        this.MESSAGE_COLUMN_FAMILY = Db.messageColumnFamily();
     }
 
 
     @Override
     public Future<Map<String, String>> retainMap() {
-        Promise<Map<String,String>> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            String prefix="retain-";
-            Map<String,String> map=new HashMap<>();
-            RocksIterator rocksIterator = rocksDB.newIterator(MESSAGE_COLUMN_FAMILY,new ReadOptions().setPrefixSameAsStart(true));
-            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid();rocksIterator.next()){
+        return readOps(() -> {
+            String prefix = "retain-";
+            Map<String, String> map = new HashMap<>();
+            RocksIterator rocksIterator = rocksDB.newIterator(MESSAGE_COLUMN_FAMILY, new ReadOptions().setPrefixSameAsStart(true));
+            for (rocksIterator.seek(prefix.getBytes()); rocksIterator.isValid(); rocksIterator.next()) {
                 String topic = new String(rocksIterator.key()).substring(prefix.length());
                 String id = new String(rocksIterator.value());
-                map.put(topic,id);
+                map.put(topic, id);
             }
             rocksIterator.close();
-            p.complete(map);
-        },promise);
-        return promise.future();
+            return map;
+        });
     }
 
     @Override
-    public Future<MessageObj> get(String id) {
-        Promise<MessageObj> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                byte[] bytes = rocksDB.get(MESSAGE_COLUMN_FAMILY,id.getBytes());
-                MessageObj messageObj = new ObjCodec().decodeMessageObj(Buffer.buffer(bytes));
-                p.complete(messageObj);
-            } catch (RocksDBException e) {
-                throw new RuntimeException(e);
-            }
-        },false,promise);
-        return promise.future();
+    public Future<DispatcherMessage> get(String id) {
+        return readOps(() -> {
+            byte[] bytes = rocksDB.get(MESSAGE_COLUMN_FAMILY, id.getBytes());
+            return bytes == null ? null : Codec.decodeDispatcherMessage(bytes);
+        });
     }
 
     @Override
-    public void set(String id, MessageObj messageObj) {
-        vertx.executeBlocking(p->{
-            try {
-                Buffer buffer = new ObjCodec().encodeMessageObj(messageObj);
-                rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),id.getBytes(),buffer.getBytes());
-            } catch (RocksDBException e) {
-                logger.error("set id:{} messageObj:{} fail",e,id,messageObj);
-            }
-        },null);
+    public void save(String id, DispatcherMessage message) {
+        writeOps(() -> {
+            rocksDB.put(MESSAGE_COLUMN_FAMILY, Db.asyncWriteOptions(), id.getBytes(), Codec.encode(message));
+            return null;
+        });
     }
 
+
+
     @Override
-    public void del(String id) {
-        vertx.executeBlocking(p->{
+    public Future<Void> del(String id) {
+        return writeOps(() -> {
             delete(id);
-        },null);
+            return null;
+        });
     }
 
-    private void delete(String id){
+    private void delete(String id) {
         try {
             WriteBatch writeBatch = new WriteBatch();
-            writeBatch.delete(MESSAGE_COLUMN_FAMILY,id.getBytes());
-            writeBatch.delete(MESSAGE_COLUMN_FAMILY,("refcnt-"+id).getBytes());
-            rocksDB.write(Db.asyncWriteOptions(),writeBatch);
+            writeBatch.delete(MESSAGE_COLUMN_FAMILY, id.getBytes());
+            writeBatch.delete(MESSAGE_COLUMN_FAMILY, ("refcnt-" + id).getBytes());
+            rocksDB.write(Db.asyncWriteOptions(), writeBatch);
         } catch (RocksDBException e) {
-            logger.error("del id:{} fail",id);
+            logger.error("del id:{} fail", id);
         }
+
     }
 
     @Override
     public Future<String> putRetain(String topic, String id) {
-        Promise<String > promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key="retain-"+topic;
-                byte[] value = rocksDB.get(key.getBytes());
-                if (id==null){
-                    //del
-                    rocksDB.delete(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes());
-                }else{
-                    //put
-                    rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),id.getBytes());
-                }
-                p.complete(value==null?null:new String(value));
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+        return writeOps(() -> {
+            String key = "retain-" + topic;
+            byte[] value = rocksDB.get(key.getBytes());
+            if (id == null) {
+                //del
+                rocksDB.delete(MESSAGE_COLUMN_FAMILY, Db.asyncWriteOptions(), key.getBytes());
+            } else {
+                //put
+                rocksDB.put(MESSAGE_COLUMN_FAMILY, Db.asyncWriteOptions(), key.getBytes(), id.getBytes());
             }
-        },promise);
-        return promise.future();
+            return value == null ? null : new String(value);
+        });
     }
+
 
 
     @Override
-    public Future<Integer> addAndGetRefCnt(String id, int d) {
-        Promise<Integer> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key="refcnt-"+id;
-                Integer r=null;
-                synchronized(key.intern()) {
-                    byte[] keyBytes = key.getBytes();
-                    byte[] value = rocksDB.get(MESSAGE_COLUMN_FAMILY,keyBytes);
-                    int count =0;
-                    if (value != null) {
-                        count = Buffer.buffer(value).getInt(0);
-                    }
-                    count += d;
-                    r=count;
-                    if (r<=0){
-//                        System.out.println(++i);
-                        delete(id);
-                    }else{
-                        rocksDB.put(MESSAGE_COLUMN_FAMILY,Db.asyncWriteOptions(),keyBytes, Buffer.buffer().appendInt(count).getBytes());
-                    }
-                }
-                p.complete(r);
-            } catch (RocksDBException e) {
-                throw new RuntimeException(e);
-            }
-        },promise);
-
-        return promise.future();
+    public Future<Integer> getRef(String id) {
+        return readOps(() -> {
+            String key = "refcnt-" + id;
+            byte[] keyBytes = key.getBytes();
+            byte[] value = rocksDB.get(MESSAGE_COLUMN_FAMILY, keyBytes);
+            return Buffer.buffer(value).getInt(0);
+        });
     }
+
+    @Override
+    public void saveRef(String id, int d) {
+        writeOps(()->{
+            String key = "refcnt-" + id;
+            byte[] keyBytes = key.getBytes();
+            rocksDB.put(MESSAGE_COLUMN_FAMILY, Db.asyncWriteOptions(), keyBytes, Buffer.buffer().appendInt(d).getBytes());
+            return null;
+        });
+
+    }
+
 }

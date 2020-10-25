@@ -1,13 +1,10 @@
 package com.stormpx.cluster.mqtt;
 
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.eventbus.MessageCodec;
 
 import java.util.Map;
 import java.util.Set;
 
 public class RetainMatchResult {
-    public final static RetainMatchResultCodec CODEC=new RetainMatchResultCodec();
 
     private Map<String, Set<String>> matchMap;
 
@@ -20,32 +17,4 @@ public class RetainMatchResult {
         return this;
     }
 
-    private static class RetainMatchResultCodec implements MessageCodec<RetainMatchResult, RetainMatchResult> {
-
-
-        @Override
-        public void encodeToWire(Buffer buffer, RetainMatchResult retainMatchResult) {
-
-        }
-
-        @Override
-        public RetainMatchResult decodeFromWire(int pos, Buffer buffer) {
-            return null;
-        }
-
-        @Override
-        public RetainMatchResult transform(RetainMatchResult retainMatchResult) {
-            return retainMatchResult;
-        }
-
-        @Override
-        public String name() {
-            return "RetainMatchResult";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
-        }
-    }
 }

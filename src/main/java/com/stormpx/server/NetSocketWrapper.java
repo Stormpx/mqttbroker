@@ -17,6 +17,7 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.net.SocketAddress;
 
+import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 

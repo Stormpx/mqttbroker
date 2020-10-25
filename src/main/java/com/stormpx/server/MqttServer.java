@@ -2,6 +2,7 @@ package com.stormpx.server;
 
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.json.JsonObject;
 
 public interface MqttServer {
 
@@ -10,11 +11,11 @@ public interface MqttServer {
 
     MqttServer handler(Handler<MqttContext> handler);
 
-    MqttConnectionHolder holder();
+
+    MqttServer setConfig(JsonObject config);
 
     Future<Void> listen();
 
-    Future<Void> wsListen();
 
     Future<Void> close();
 

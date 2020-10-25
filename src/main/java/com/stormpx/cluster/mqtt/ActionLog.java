@@ -1,4 +1,4 @@
-package com.stormpx.cluster.message;
+package com.stormpx.cluster.mqtt;
 
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Objects;
 
 public class ActionLog  {
-    public final static ActionLogCodec CODEC=new ActionLogCodec();
 
     private String action;
     private List<String> args;
@@ -129,34 +128,6 @@ public class ActionLog  {
     }
 
 
-    private static class ActionLogCodec implements MessageCodec<ActionLog,ActionLog> {
-
-
-        @Override
-        public void encodeToWire(Buffer buffer, ActionLog actionLog) {
-
-        }
-
-        @Override
-        public ActionLog decodeFromWire(int pos, Buffer buffer) {
-            return null;
-        }
-
-        @Override
-        public ActionLog transform(ActionLog actionLog) {
-            return actionLog;
-        }
-
-        @Override
-        public String name() {
-            return "actionLog";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
-        }
-    }
 
 
 }

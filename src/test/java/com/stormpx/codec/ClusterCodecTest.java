@@ -2,6 +2,7 @@ package com.stormpx.codec;
 
 import com.stormpx.cluster.LogEntry;
 import com.stormpx.cluster.message.*;
+import com.stormpx.cluster.mqtt.ActionLog;
 import com.stormpx.cluster.mqtt.MqttMetaData;
 import com.stormpx.cluster.net.SocketHandler;
 import io.vertx.core.buffer.Buffer;

@@ -11,6 +11,7 @@ public class MqttSubscription {
     private boolean noLocal;
     private boolean retainAsPublished;
     private RetainHandling retainHandling;
+    private int subscriptionId;
 
 
     public MqttSubscription(String topicFilter, MqttQoS qos, boolean noLocal, boolean retainAsPublished, RetainHandling retainHandling) {
@@ -58,21 +59,31 @@ public class MqttSubscription {
         return jsonObject;
     }
 
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MqttSubscription that = (MqttSubscription) o;
-        return noLocal == that.noLocal && retainAsPublished == that.retainAsPublished && Objects.equals(topicFilter, that.topicFilter) && qos == that.qos && retainHandling == that.retainHandling;
+        return noLocal == that.noLocal && retainAsPublished == that.retainAsPublished && subscriptionId == that.subscriptionId && Objects.equals(topicFilter, that.topicFilter) && qos == that.qos && retainHandling == that.retainHandling;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(topicFilter, qos, noLocal, retainAsPublished, retainHandling);
+        return Objects.hash(topicFilter, qos, noLocal, retainAsPublished, retainHandling, subscriptionId);
     }
 
     @Override
     public String toString() {
-        return "MqttSubscription{" + "topicFilter='" + topicFilter + '\'' + ", qos=" + qos + ", noLocal=" + noLocal + ", retainAsPublished=" + retainAsPublished + ", retainHandling=" + retainHandling + '}';
+        return "MqttSubscription{" + "topicFilter='" + topicFilter + '\'' + ", qos=" + qos + ", noLocal=" + noLocal + ", retainAsPublished=" + retainAsPublished + ", retainHandling=" + retainHandling + ", subscriptionId=" + subscriptionId + '}';
+    }
+
+    public int getSubscriptionId() {
+        return subscriptionId;
+    }
+
+    public MqttSubscription setSubscriptionId(int subscriptionId) {
+        this.subscriptionId = subscriptionId;
+        return this;
     }
 }

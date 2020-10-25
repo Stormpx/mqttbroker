@@ -28,7 +28,7 @@ public class NetClusterImpl implements NetCluster {
     private Set<NetSocket> netSockets;
     private Handler<VoteRequest> voteRequestHandler;
     private Handler<AppendEntriesRequest> appendEntriesRequestHandler;
-    private Handler<ClientRequest> clusterRequestHandler;
+    private Handler<ClientExtendRequest> clusterRequestHandler;
     private Handler<ReadIndexRequest> readIndexRequestHandler;
     private Handler<VoteResponse> voteResponseHandler;
     private Handler<AppendEntriesResponse> appendEntriesResponseHandler;
@@ -118,8 +118,8 @@ public class NetClusterImpl implements NetCluster {
                     voteRequestHandler.handle(voteRequest);
                 break;
             case REQUEST:
-                ClientRequest request = new ClientRequest(netSocket, this, clusterMessage);
-                Handler<ClientRequest> clusterRequestHandler = this.clusterRequestHandler;
+                ClientExtendRequest request = new ClientExtendRequest(netSocket, this, clusterMessage);
+                Handler<ClientExtendRequest> clusterRequestHandler = this.clusterRequestHandler;
                 if (clusterRequestHandler!=null)
                     clusterRequestHandler.handle(request);
                 break;
@@ -188,7 +188,7 @@ public class NetClusterImpl implements NetCluster {
     }
 
     @Override
-    public NetCluster requestHandler(Handler<ClientRequest> handler) {
+    public NetCluster requestHandler(Handler<ClientExtendRequest> handler) {
         this.clusterRequestHandler=handler;
         return this;
     }

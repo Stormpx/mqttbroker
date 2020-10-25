@@ -126,7 +126,12 @@ public class Mqtt5Context extends AbstractMqttContext {
                     break;
             }
         }
+        if (subId!=0){
+            for (MqttSubscription s : subscribePacket.getSubscriptions()) {
+                s.setSubscriptionId(subId);
+            }
 
+        }
         MqttSubscribeMessage subscribeMessage = new MqttSubscribeMessage(subscribePacket.getSubscriptions(), subscribePacket.getPacketIdentifier(), subId, list);
 
         if (subscribeHandler != null) {
@@ -263,11 +268,13 @@ public class Mqtt5Context extends AbstractMqttContext {
         if (message.getSubscriptionId()!=null){
             message.getSubscriptionId()
                     .stream()
+                    .filter(i->i>0)
                     .map(id->new MqttProperties(MqttProperty.SUBSCRIPTION_IDENTIFIER,id))
                     .forEach(list::add);
         }
 
-        MqttPublishPacket publishPacket=new MqttPublishPacket(new FixedHeader(ControlPacketType.PUBLISH,message.isDup(),message.getQos().value(),message.isRetain(),0),
+        MqttPublishPacket publishPacket=new MqttPublishPacket(
+                new FixedHeader(ControlPacketType.PUBLISH,message.isDup(),message.getQos().value(),message.isRetain(),0),
                 message.getTopic(),message.getPacketId(),list,payload);
 
         Promise<Void> promise=Promise.promise();

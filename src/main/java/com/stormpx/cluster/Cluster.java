@@ -1,9 +1,11 @@
 package com.stormpx.cluster;
 
-import com.stormpx.cluster.message.ActionLog;
+import com.stormpx.cluster.mqtt.ActionLog;
 import com.stormpx.cluster.mqtt.RetainMatchResult;
 import com.stormpx.cluster.mqtt.SessionResult;
 import com.stormpx.cluster.mqtt.TopicMatchResult;
+import com.stormpx.cluster.mqtt.command.SendMessageCommand;
+import com.stormpx.dispatcher.DispatcherMessage;
 import com.stormpx.kit.UnSafeJsonObject;
 import com.stormpx.store.MessageObj;
 import io.vertx.core.Future;
@@ -30,9 +32,10 @@ public class Cluster {
     private final static String SEND_MESSAGE="_send_message_";
 
     private Vertx vertx;
-
-    public Cluster(Vertx vertx) {
+    private String id;
+    public Cluster(Vertx vertx,String id) {
         this.vertx = vertx;
+        this.id=id;
     }
 
     public Consumer consumer(){
@@ -106,11 +109,15 @@ public class Cluster {
        return promise.future();
    }
 
-   public void sendMessage(String nodeId,JsonObject message){
-        vertx.eventBus().send(SEND_MESSAGE, UnSafeJsonObject.wrapper(new JsonObject().put("nodeId",nodeId).put("body",message)));
+   public void sendMessage(SendMessageCommand command){
+        vertx.eventBus().send(SEND_MESSAGE, command);
    }
 
-   public static class Consumer{
+    public String getId() {
+        return id;
+    }
+
+    public static class Consumer{
         private Vertx vertx;
 
        private MessageConsumer<JsonObject> sessionTakenoverConsumer;
@@ -176,7 +183,7 @@ public class Cluster {
            return this;
        }
 
-       public Consumer sendMessageHandler(Handler<UnSafeJsonObject> handler){
+       public Consumer sendMessageHandler(Handler<DispatcherMessage> handler){
            this.sendMessageConsumer=vertx.eventBus().<UnSafeJsonObject>localConsumer(SEND_MESSAGE)
                    .handler(msg->{
                        UnSafeJsonObject body = msg.body();

@@ -5,13 +5,13 @@ import com.stormpx.cluster.message.ClusterMessage;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.net.NetSocket;
 
-public class ClientRequest {
+public class ClientExtendRequest {
     private NetSocket netSocket;
     private NetClusterImpl netCluster;
     private ClusterMessage clusterMessage;
 
 
-    public ClientRequest(NetSocket netSocket, NetClusterImpl netCluster, ClusterMessage clusterMessage) {
+    public ClientExtendRequest(NetSocket netSocket, NetClusterImpl netCluster, ClusterMessage clusterMessage) {
         this.netSocket = netSocket;
         this.netCluster = netCluster;
         this.clusterMessage = clusterMessage;

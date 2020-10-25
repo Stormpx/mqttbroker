@@ -65,11 +65,11 @@ public class TopicFilter {
             String[] split = topic.split("/", 3);
             if (!split[1].equals("#")&&!split[1].equals("+")&&split.length==3){
                 getObj(split[2]).removeShare(split[1],clientId);
-                return true;
+                return anySubscribed(topic);
             }
         }
         getObj(topic).removeNonShare(clientId);
-        return true;
+        return anySubscribed(topic);
     }
 
     public void clearSubscribe(String clientId){
@@ -115,9 +115,9 @@ public class TopicFilter {
         return topics.entrySet().stream().anyMatch(t->TopicUtil.matches(t.getKey(),topic)&&t.getValue().anySubscribed());
     }
 
-    public Collection<SubscribeInfo> matches(String topic){
-        BiConsumer<Map<String,SubscribeInfo>, Entry> consumer=(map, e)->{
-            var subscribeInfo = map.computeIfAbsent(e.getClientId(), (k) -> new SubscribeInfo(e.getClientId()));
+    public Collection<SubscribeMatchResult> matches(String topic){
+        BiConsumer<Map<String, SubscribeMatchResult>, Entry> consumer=(map, e)->{
+            var subscribeInfo = map.computeIfAbsent(e.getClientId(), (k) -> new SubscribeMatchResult(e.getClientId()));
             subscribeInfo.allMatchSubscribe.add(e);
         };
 
@@ -125,7 +125,7 @@ public class TopicFilter {
                 .stream()
                 .filter(e->TopicUtil.matches(e.getKey(),topic))
                 .map(Map.Entry::getValue)
-                .reduce(new HashMap<String, SubscribeInfo>(),(map, sObj)->{
+                .reduce(new HashMap<String, SubscribeMatchResult>(),(map, sObj)->{
                     sObj.subscribeList().forEach(e-> consumer.accept(map,e));
                     sObj.shareSubscribeList().forEach(e-> consumer.accept(map,e));
                     return map;
@@ -224,6 +224,7 @@ public class TopicFilter {
         public Optional<Entry> chooseOne(){
             if (index>=map.size())
                 index=0;
+
             return map.values().stream().skip(index++).findFirst();
         }
 
@@ -242,11 +243,11 @@ public class TopicFilter {
     }
 
 
-    public class SubscribeInfo{
+    public class SubscribeMatchResult {
         private String clientId;
         private List<Entry> allMatchSubscribe=new LinkedList<>();
 
-         SubscribeInfo(String clientId) {
+         SubscribeMatchResult(String clientId) {
             this.clientId = clientId;
 
         }

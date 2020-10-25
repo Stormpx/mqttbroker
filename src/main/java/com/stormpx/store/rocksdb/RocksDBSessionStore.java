@@ -1,157 +1,168 @@
 package com.stormpx.store.rocksdb;
 
-import com.stormpx.kit.FileUtil;
-import com.stormpx.kit.J;
+import com.stormpx.dispatcher.ClientSession;
+import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.kit.Codec;
+import com.stormpx.kit.value.Values1;
+import com.stormpx.mqtt.MqttSubscription;
+import com.stormpx.store.BlockStore;
+import com.stormpx.store.MessageLink;
 import com.stormpx.store.SessionObj;
 import com.stormpx.store.SessionStore;
+import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
-import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import org.rocksdb.*;
 
-import java.io.File;
-import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 
-public class RocksDBSessionStore implements SessionStore {
+public class RocksDBSessionStore extends BlockStore implements SessionStore {
     private final static Logger logger= LoggerFactory.getLogger(RocksDBSessionStore.class);
     private ColumnFamilyHandle SESSION_COLUMN_FAMILY;
     private Vertx vertx;
     private RocksDB rocksDB;
 
     public RocksDBSessionStore(Vertx vertx) {
+        super(vertx);
         this.vertx=vertx;
         this.rocksDB=Db.db();
         this.SESSION_COLUMN_FAMILY=Db.sessionColumnFamily();
     }
 
+    private byte[] expiryTimestampKey(String clientId){
+        return (clientId+"-expiryTimestamp").getBytes();
+    }
+
+    private byte[] offlineLinkKey(String clientId, String id){
+        return (clientId+"-link-"+id).getBytes();
+    }
+    private byte[] linkKey(String clientId, Integer packetId){
+        return (clientId + "-link-" + packetId).getBytes();
+    }
+    private String linkKeyPrefix(String clientId){
+        return (clientId+"-link");
+    }
+
+
+
+    private byte[] packetIdKey(String clientId,Integer packetId){
+        return (clientId+"-packetId-"+packetId).getBytes();
+    }
+
+    private String packetIdKeyPrefix(String clientId){
+        return clientId+"-packetId-";
+    }
+
+    private byte[] willKey(String clientId){
+        return (clientId+"-will").getBytes();
+    }
+
+    private byte[] subscribeKey(String clientId,String topic){
+        String key=clientId+"-subscribe-"+topic;
+        return key.getBytes();
+    }
+    private String subscribeKeyPrefix(String clientId){
+        return clientId+"-subscribe-";
+    }
+
 
     @Override
-    public Future<SessionObj> get(String clientId) {
-        Promise<SessionObj> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String expiryTimestampKey=clientId+"-expiryTimestamp";
-                String willKey=clientId+"-will";
-                String subscribeKey=clientId+"-subscribe";
-                String linkPrefix=clientId+"-link-";
-                String packetIdPrefix=clientId+"-packetId-";
-                SessionObj sessionObj = new SessionObj(clientId);
+    public Future<ClientSession> get(String clientId) {
+        return getExpiryTimestamp(clientId)
+            .map(Values1::values)
+            .compose(v->getWill(clientId).map(v::toValues2))
+            .compose(v->getSubscription(clientId).map(v::toValues3))
+            .compose(v->links(clientId).map(v::toValues4))
+            .compose(v->packetId(clientId).map(v::toValues5))
 
-                byte[] expiryTimestampValue = rocksDB.get(SESSION_COLUMN_FAMILY,expiryTimestampKey.getBytes());
-                if (expiryTimestampValue!=null){
-                    sessionObj.setExpiryTimestamp(Buffer.buffer(expiryTimestampValue).getLong(0));
+            .map(v->{
+                var session=new ClientSession(clientId);
+
+                session.setExpiryTimestamp(v.getOne())
+                        .setWill(v.getTwo())
+                        .setTopicSubscriptions(v.getThree())
+                        .setMessageLinks(v.getFour());
+
+                List<Integer> ids = v.getFive();
+                BitSet bitSet = new BitSet();
+                ids.forEach(bitSet::set);
+                session.setPacketIdSet(bitSet);
+                return session;
+            })
+            .onFailure(t->logger.error("",t))    ;
+    }
+
+    @Override
+    public Future<Void> save(ClientSession clientSession) {
+        String clientId = clientSession.getClientId();
+
+        writeOps(()->{
+            WriteBatch batch = new WriteBatch();
+
+            RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
+            for (rocksIterator.seek(clientId.getBytes());
+                 rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(clientId);
+                 rocksIterator.next()){
+                batch.remove(SESSION_COLUMN_FAMILY,rocksIterator.key());
+                rocksIterator.next();
+            }
+            rocksIterator.close();
+
+
+            if (clientSession.getExpiryTimestamp()!=null) {
+                byte[] value = Buffer.buffer().appendLong(clientSession.getExpiryTimestamp()).getBytes();
+                batch.put(SESSION_COLUMN_FAMILY, expiryTimestampKey(clientId), value);
+            }
+
+            if (clientSession.getWill()!=null) {
+                DispatcherMessage will = clientSession.getWill();
+                byte[] key = willKey(clientId);
+                batch.put(SESSION_COLUMN_FAMILY, key, Codec.encode(will));
+            }
+
+            if (clientSession.getTopicSubscriptions()!=null) {
+                List<MqttSubscription> topicSubscriptions = clientSession.getTopicSubscriptions();
+                for (MqttSubscription mqttSubscription : topicSubscriptions) {
+                    byte[] key = subscribeKey(clientId,mqttSubscription.getTopicFilter());
+                    batch.put(SESSION_COLUMN_FAMILY,key, Codec.encode(mqttSubscription));
                 }
-                byte[] willValue = rocksDB.get(SESSION_COLUMN_FAMILY,willKey.getBytes());
-                if (willValue!=null){
-                    sessionObj.setWill(Buffer.buffer(willValue).toJsonObject());
-                }
-                byte[] subscribeValue = rocksDB.get(SESSION_COLUMN_FAMILY,subscribeKey.getBytes());
-                if (subscribeValue!=null){
-                    sessionObj.addTopicSubscription(Buffer.buffer(subscribeValue).toJsonArray());
-                }
-                RocksIterator linkRocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
-                for (linkRocksIterator.seek(linkPrefix.getBytes());linkRocksIterator.isValid()&&new String(linkRocksIterator.key()).startsWith(linkPrefix);linkRocksIterator.next()){
-                    byte[] value = linkRocksIterator.value();
-                    JsonObject link = Buffer.buffer(value).toJsonObject();
-                    Integer packetId = link.getInteger("packetId");
-                    String id = link.getString("id");
-                    if (packetId!=null){
-                        sessionObj.addMessageLink(packetId,link);
+            }
+
+            if (clientSession.getMessageLinks()!=null) {
+                List<MessageLink> links = clientSession.getMessageLinks();
+                for (MessageLink link : links) {
+                    if (link.isOffLink()){
+                        String id = link.getId();
+                        batch.put(SESSION_COLUMN_FAMILY,offlineLinkKey(clientId, id),Codec.encode(link));
                     }else{
-                        sessionObj.addPendingId(id,link);
+                        Integer packetId =link.getPacketId();
+                        batch.put(SESSION_COLUMN_FAMILY,linkKey(clientId,packetId), Codec.encode(link));
                     }
                 }
-
-                linkRocksIterator.close();
-
-                RocksIterator packetIdRocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
-                for (packetIdRocksIterator.seek(packetIdPrefix.getBytes());
-                     packetIdRocksIterator.isValid()&&new String(packetIdRocksIterator.key()).startsWith(packetIdPrefix);
-                     packetIdRocksIterator.next()){
-                    byte[] value = packetIdRocksIterator.value();
-                    sessionObj.addPacketId(Buffer.buffer(value).getInt(0));
-                }
-                packetIdRocksIterator.close();
-                p.complete(sessionObj);
-            } catch (RocksDBException e) {
-                throw new RuntimeException(e);
             }
-        },false,promise);
 
-        return promise.future();
+            if (clientSession.getPacketIdSet()!=null){
+                clientSession.getPacketIdSet().stream().forEach(packetId->{
+                    try {
+                        rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),packetIdKey(clientId,packetId),Buffer.buffer().appendInt(packetId).getBytes());
+                    } catch (RocksDBException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+
+            rocksDB.write(Db.asyncWriteOptions(),batch);
+            return null;
+        });
+        return null;
     }
 
-    @Override
-    public Future<Void> save(SessionObj sessionObj) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String clientId = sessionObj.getClientId();
-                WriteBatch batch = new WriteBatch();
 
-                RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
-
-                for (rocksIterator.seek(clientId.getBytes());
-                     rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(clientId);
-                     rocksIterator.next()){
-                    batch.remove(SESSION_COLUMN_FAMILY,rocksIterator.key());
-                    rocksIterator.next();
-                }
-                rocksIterator.close();
-
-                if (sessionObj.getExpiryTimestamp()!=null){
-                    String key=clientId+"-expiryTimestamp";
-                    byte[] value = Buffer.buffer().appendLong(sessionObj.getExpiryTimestamp()).getBytes();
-                    batch.put(SESSION_COLUMN_FAMILY,key.getBytes(),value);
-                }
-                if (sessionObj.getWill()!=null){
-                    String key=clientId+"-will";
-                    batch.put(SESSION_COLUMN_FAMILY,key.getBytes(),sessionObj.getWill().toBuffer().getBytes());
-                }
-                if (sessionObj.getTopicSubscriptions()!=null){
-                    String key=clientId+"-subscribe";
-                    Buffer value = sessionObj.getTopicSubscriptions().toBuffer();
-                    batch.put(SESSION_COLUMN_FAMILY,key.getBytes(),value.getBytes());
-                }
-                if (sessionObj.getMessageLinkMap()!=null){
-                    for (Map.Entry<Integer, JsonObject> entry : sessionObj.getMessageLinkMap().entrySet()) {
-                        Integer k = entry.getKey();
-                        JsonObject v = entry.getValue();
-                        String key = clientId + "-link-" + k;
-                        batch.put(SESSION_COLUMN_FAMILY,key.getBytes(), v.toBuffer().getBytes());
-                    }
-
-                }
-                if (sessionObj.getPendingMessage()!=null){
-                    for (Map.Entry<String, JsonObject> entry : sessionObj.getPendingMessage().entrySet()) {
-                        String k = entry.getKey();
-                        JsonObject v = entry.getValue();
-                        String key = clientId + "-link-" + k;
-                        batch.put(SESSION_COLUMN_FAMILY,key.getBytes(), v.toBuffer().getBytes());
-                    }
-                }
-                if (sessionObj.getPacketIdSet()!=null){
-                    for (Integer packetId : sessionObj.getPacketIdSet()) {
-                        String key = clientId + "-packetId-" + packetId;
-                        batch.put(SESSION_COLUMN_FAMILY,key.getBytes(), Buffer.buffer().appendInt(packetId).getBytes());
-                    }
-                }
-                rocksDB.write(Db.asyncWriteOptions(),batch);
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("save client:{} sessionObj fail",e,sessionObj.getClientId());
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
-    }
 
     private void delClient(String clientId) throws RocksDBException {
         RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
@@ -169,317 +180,233 @@ public class RocksDBSessionStore implements SessionStore {
 
     @Override
     public Future<Void> del(String clientId) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
+        return writeOps(()->{
+            delClient(clientId);
+            return (Void)null;
+        }).onFailure(e->logger.error("del session {} fail",e,clientId));
 
-                delClient(clientId);
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("del session {} fail",e,clientId);
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
     }
 
     @Override
     public Future<Void> setExpiryTimestamp(String clientId, Long expiryTimestamp) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key=clientId+"-expiryTimestamp";
-                byte[] value = Buffer.buffer().appendLong(expiryTimestamp).getBytes();
-                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),value);
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("set client: {} expiryTimestamp :{} fail",e,clientId,expiryTimestamp);
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
+        return writeOps(()->{
+            byte[] value = Buffer.buffer().appendLong(expiryTimestamp).getBytes();
+            rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),expiryTimestampKey(clientId),value);
+            return (Void)null;
+        }).onFailure(e->logger.error("set client: {} expiryTimestamp :{} failed",e,clientId,expiryTimestamp));
     }
 
     @Override
     public Future<Long> getExpiryTimestamp(String clientId) {
-        Promise<Long> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key=clientId+"-expiryTimestamp";
-                byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                if (value!=null)
-                    p.complete(Buffer.buffer(value).getLong(0));
-                else
-                    p.complete();
 
-            } catch (RocksDBException e) {
-                logger.error("get client:{} expiryTimestamp failed",e,clientId);
-                throw new RuntimeException(e);
-            }
-        },false,promise);
+        return readOps(()->{
+            byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,expiryTimestampKey(clientId));
+            return value==null?null:Buffer.buffer(value).getLong(0);
+        }).onFailure(e-> logger.error("get client:{} expiryTimestamp failed",e,clientId));
+    }
 
-        return promise.future();
+
+
+    @Override
+    public Future<Void> addLink(String clientId, MessageLink link) {
+        return writeOps(()->{
+            WriteBatch writeBatch = new WriteBatch();
+            String id = link.getId();
+            writeBatch.remove(SESSION_COLUMN_FAMILY, offlineLinkKey(clientId,id));
+            Integer packetId =link.getPacketId();
+            writeBatch.put(SESSION_COLUMN_FAMILY,linkKey(clientId,packetId), Codec.encode(link));
+            rocksDB.write(Db.asyncWriteOptions(),writeBatch);
+            return null;
+        });
     }
 
     @Override
-    public Future<Void> addLink(String clientId, JsonObject link) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                WriteBatch writeBatch = new WriteBatch();
-                String id = link.getString("id");
-                writeBatch.remove(SESSION_COLUMN_FAMILY,(clientId+"-link-"+id).getBytes());
-                Integer packetId = link.getInteger("packetId");
-                if (packetId==null){
-                    String key = clientId + "-link-" + id;
-                    writeBatch.put(SESSION_COLUMN_FAMILY,key.getBytes(), link.toBuffer().getBytes());
-                }else {
-                    String key = clientId + "-link-" + packetId;
-                    writeBatch.put(SESSION_COLUMN_FAMILY,key.getBytes(), link.toBuffer().getBytes());
-                }
-                rocksDB.write(Db.asyncWriteOptions(),writeBatch);
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("add client:{} link :{} fail",e,clientId,link.encode());
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
+    public Future<Void> addOfflineLink(String clientId,MessageLink link){
+        return writeOps(()->{
+            WriteBatch writeBatch = new WriteBatch();
+            writeBatch.put(SESSION_COLUMN_FAMILY,offlineLinkKey(clientId,link.getId()), Codec.encode(link));
+            rocksDB.write(Db.asyncWriteOptions(),writeBatch);
+            return null;
+        });
     }
 
+    @Override
+    public Future<List<MessageLink>> links(String clientId) {
+        return readOps(()->{
+            String prefix=linkKeyPrefix(clientId);
+            RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
+            rocksIterator.seek(prefix.getBytes());
+            List<MessageLink> list=new ArrayList<>();
+            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);rocksIterator.next()){
+                byte[] value = rocksIterator.value();
+                list.add(Codec.decodeMessageLink(value));
+                rocksIterator.next();
+            }
+            rocksIterator.close();
+            return list;
+        });
+    }
     @Override
     public Future<String> release(String clientId, int packetId) {
-        Promise<String> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key = clientId + "-link-" + packetId;
-                byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                if (value==null){
-                    p.complete();
-                    return;
-                }
-                rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes());
-                JsonObject link = Buffer.buffer(value).toJsonObject();
-                p.complete(link.getString("id"));
-            } catch (RocksDBException e) {
-                throw new RuntimeException(e);
+        return writeOps(()->{
+            byte[] key=linkKey(clientId,packetId);
+            byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key);
+            if (value==null){
+                return null;
             }
-        },promise);
-        return promise.future();
+            rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key);
+            MessageLink link = Codec.decodeMessageLink(value);
+            return link.getId();
+        });
     }
 
     @Override
     public Future<String> receive(String clientId, int packetId) {
-        Promise<String> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key = clientId + "-link-" + packetId;
-                byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),new JsonObject().put("clientId",clientId).put("packetId",packetId).toBuffer().getBytes());
-                JsonObject link = Buffer.buffer(value).toJsonObject();
-                p.complete(link.getString("id"));
-            } catch (RocksDBException e) {
-                logger.error("set client:{} receive packetId:{} failed",e,clientId,packetId);
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
+        return writeOps(()->{
+            byte[] key = linkKey(clientId,packetId);
+            byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key);
+            MessageLink messageLink = Codec.decodeMessageLink(value);
+            rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key, Codec.encode(MessageLink.create(null,clientId,packetId,false, MqttQoS.AT_MOST_ONCE,null)));
+            return messageLink.getId();
+        });
     }
 
-    @Override
-    public Future<List<JsonObject>> links(String clientId) {
 
-        Promise<List<JsonObject>> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            String prefix=clientId+"-link-";
-            RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
-            rocksIterator.seek(prefix.getBytes());
-            List<JsonObject> list=new ArrayList<>();
-            for (rocksIterator.seek(prefix.getBytes());rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);rocksIterator.next()){
-                byte[] value = rocksIterator.value();
-                list.add(Buffer.buffer(value).toJsonObject());
-                rocksIterator.next();
-            }
-            rocksIterator.close();
-
-
-            p.complete(list);
-        },false,promise);
-
-        return promise.future();
-    }
 
     @Override
     public Future<Void> addPacketId(String clientId, int packetId) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key=clientId+"-packetId-"+packetId;
-                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),Buffer.buffer().appendInt(packetId).getBytes());
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("add client:{} packetId :{} failed",e,clientId,packetId);
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
+        return writeOps(()->{
+            rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),packetIdKey(clientId,packetId),Buffer.buffer().appendInt(packetId).getBytes());
+            return (Void)null;
+        });
     }
 
     @Override
     public Future<List<Integer>> packetId(String clientId) {
-
-        Promise<List<Integer>> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            String prefix=clientId+"-packetId-";
+        return readOps(()->{
+            String prefix=packetIdKeyPrefix(clientId);
             RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
 
             List<Integer> list=new ArrayList<>();
             for (rocksIterator.seek(prefix.getBytes());
-                rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);
-                rocksIterator.next()) {
+                 rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);
+                 rocksIterator.next()) {
                 byte[] value = rocksIterator.value();
                 list.add(Buffer.buffer(value).getInt(0));
                 rocksIterator.next();
             }
             rocksIterator.close();
-            p.complete(list);
-        },false,promise);
+            return list;
+        });
 
-        return promise.future();
     }
 
     @Override
     public Future<Void> removePacketId(String clientId, int packetId) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
+        return writeOps(()->{
+            rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),packetIdKey(clientId,packetId));
+            return null;
+        });
+    }
+
+
+    @Override
+    public Future<Void> saveWill(String clientId, DispatcherMessage will) {
+        return writeOps(()->{
             try {
-                String key=clientId+"-packetId-"+packetId;
-                rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes());
-                p.complete();
+                byte[] key = willKey(clientId);
+                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key, Codec.encode(will));
+                return null;
             } catch (RocksDBException e) {
-                logger.error("del client:{} packetId packetId: {} failed",e,clientId,packetId);
-                throw new RuntimeException(e);
+                logger.error("del client:{} will :{} failed",e,clientId,will);
+                throw e;
             }
-        },promise);
-        return promise.future();
+        });
     }
 
     @Override
-    public Future<Void> saveWill(String clientId, JsonObject will) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
+    public Future<DispatcherMessage> getWill(String clientId) {
+        return readOps(()->{
             try {
-                String key=clientId+"-will";
-                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),will.toBuffer().getBytes());
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("del client:{} will :{} failed",e,clientId,will.encodePrettily());
-                throw new RuntimeException(e);
-            }
-        },promise);
-        return promise.future();
-    }
-
-    @Override
-    public Future<JsonObject> getWill(String clientId) {
-        Promise<JsonObject> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key=clientId+"-will";
-                byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                if (value==null)
-                    p.complete();
-                else
-                    p.complete(Buffer.buffer(value).toJsonObject());
+                byte[] key = willKey(clientId);
+                byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key);
+                return value==null?null: Codec.decodeDispatcherMessage(value);
             } catch (RocksDBException e) {
                 logger.error("get client:{} will failed",e,clientId);
-                throw new RuntimeException(e);
+                throw  e;
             }
-        },false,promise);
-        return promise.future();
+        });
     }
 
     @Override
     public Future<Void> delWill(String clientId) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
+        return writeOps(()->{
             try {
-                String key=clientId+"-will";
-                rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes());
+                rocksDB.delete(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),willKey(clientId));
+                return null;
             } catch (RocksDBException e) {
                 logger.error("del client:{} will failed",e,clientId);
-                throw new RuntimeException(e);
+                throw e;
             }
-            p.complete();
-        },promise);
-        return promise.future();
+        });
     }
 
-    @Override
-    public Future<Void> addSubscription(String clientId, JsonArray jsonArray) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
-            try {
-                String key=clientId+"-subscribe";
-                byte[] v = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                JsonArray array = Optional.ofNullable(v).map(bytes -> Buffer.buffer(bytes).toJsonArray()).orElseGet(JsonArray::new);
-
-                Set<String> topicFilter = J.toJsonStream(jsonArray).map(json -> json.getString("topicFilter")).collect(Collectors.toSet());
-                JsonArray filter = J.toJsonStream(array).filter(json -> !topicFilter.contains(json.getString("topicFilter"))).collect(J.toJsonArray());
-                Buffer value = filter.addAll(jsonArray).toBuffer();
-                rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),value.getBytes());
-                p.complete();
-            } catch (RocksDBException e) {
-                logger.error("add client:{} subscription :{} failed",e,clientId,jsonArray.encode());
-                throw new RuntimeException(e);
-            }
-
-        },promise);
-        return promise.future();
-    }
 
     @Override
-    public Future<JsonArray> fetchSubscription(String clientId) {
-        Promise<JsonArray> promise=Promise.promise();
-        vertx.executeBlocking(p->{
+    public Future<Void> addSubscription(String clientId, List<MqttSubscription> mqttSubscriptions) {
+
+        return writeOps(()->{
             try {
-                String key=clientId+"-subscribe";
-                byte[] bytes = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                if (bytes!=null) {
-                    JsonArray array = Buffer.buffer(bytes).toJsonArray();
-                    p.complete(array);
-                }else{
-                    p.complete();
+                WriteBatch batch = new WriteBatch();
+                for (MqttSubscription mqttSubscription : mqttSubscriptions) {
+                    byte[] key = subscribeKey(clientId,mqttSubscription.getTopicFilter());
+                    batch.put(SESSION_COLUMN_FAMILY,key, Codec.encode(mqttSubscription));
                 }
+                rocksDB.write(Db.asyncWriteOptions(),batch);
+                return null;
             } catch (RocksDBException e) {
-                logger.error("fetch client:{} subscription failed",e,clientId);
-                throw new RuntimeException(e);
+                logger.error("add client:{} subscription :{} failed",e,clientId,mqttSubscriptions);
+                throw e;
             }
-        },false,promise);
-        return promise.future();
+        });
+    }
+
+    @Override
+    public Future<List<MqttSubscription>> getSubscription(String clientId) {
+        return readOps(()->{
+            String prefix = subscribeKeyPrefix(clientId);
+            RocksIterator rocksIterator = rocksDB.newIterator(SESSION_COLUMN_FAMILY);
+
+            List<MqttSubscription> list=new ArrayList<>();
+            for (rocksIterator.seek(prefix.getBytes());
+                 rocksIterator.isValid()&&new String(rocksIterator.key()).startsWith(prefix);
+                 rocksIterator.next()) {
+                byte[] value = rocksIterator.value();
+                list.add(Codec.decodeMqttSubscription(value));
+                rocksIterator.next();
+            }
+            rocksIterator.close();
+            return list;
+        });
     }
 
     @Override
     public Future<Void> deleteSubscription(String clientId, List<String> topics) {
-        Promise<Void> promise=Promise.promise();
-        vertx.executeBlocking(p->{
+        return writeOps(()->{
             try {
-                String key=clientId+"-subscribe";
-                byte[] bytes = rocksDB.get(SESSION_COLUMN_FAMILY,key.getBytes());
-                if (bytes!=null) {
-                    JsonArray array = Buffer.buffer(bytes).toJsonArray();
-                    Set<String> topicSet = Set.copyOf(topics);
-                    JsonArray filter = J.toJsonStream(array).filter(json -> !topicSet.contains(json.getString("topicFilter"))).collect(J.toJsonArray());
-                    Buffer value = filter.toBuffer();
-                    rocksDB.put(SESSION_COLUMN_FAMILY,Db.asyncWriteOptions(),key.getBytes(),value.getBytes());
+                WriteBatch batch = new WriteBatch();
+                for (String topic : topics) {
+                    byte[] key = subscribeKey(clientId,topic);
+                    batch.delete(SESSION_COLUMN_FAMILY,key);
                 }
-                p.complete();
+                rocksDB.write(Db.asyncWriteOptions(),batch);
+                return null;
             } catch (RocksDBException e) {
                 logger.error("del client:{} subscription :{} failed",e,clientId,topics);
-                throw new RuntimeException(e);
+                throw e;
             }
+        });
 
-        },promise);
-        return promise.future();
+
     }
 }

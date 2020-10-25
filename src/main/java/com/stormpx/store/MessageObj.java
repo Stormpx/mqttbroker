@@ -11,7 +11,6 @@ public class MessageObj {
 
     private int refCnt =0;
 
-    private long timestamp= Instant.now().getEpochSecond();
 
     private JsonObject message;
 
@@ -34,9 +33,6 @@ public class MessageObj {
         return refCnt;
     }
 
-    public long getTimestamp() {
-        return timestamp;
-    }
 
     @Override
     public String toString() {

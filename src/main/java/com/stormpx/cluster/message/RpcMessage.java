@@ -8,11 +8,18 @@ public class RpcMessage {
     private String res;
     private int requestId;
     private JsonObject body;
+    private Buffer payload;
 
     public RpcMessage(String res, int requestId, JsonObject body) {
         this.res = res;
         this.requestId = requestId;
         this.body = body;
+    }
+
+    public RpcMessage(String res, int requestId, Buffer payload) {
+        this.res = res;
+        this.requestId = requestId;
+        this.payload = payload;
     }
 
     public static RpcMessage decode(Buffer buffer){
@@ -23,30 +30,16 @@ public class RpcMessage {
         pos+=4;
         Buffer res = buffer.getBuffer(pos, pos + len);
         pos+=len;
-        JsonObject json = buffer.slice(pos, buffer.length()).toJsonObject();
-        return new RpcMessage(res.toString("utf-8"),requestId,json);
+        Buffer payload = buffer.slice(pos, buffer.length()).copy();
+        return new RpcMessage(res.toString("utf-8"),requestId,payload);
 
         /*RequestType requestType = RequestType.valueOf(buffer.getByte(0));
         JsonObject body = buffer.slice(0, buffer.length()).toJsonObject();
         return new ProMessage(requestType,body);*/
     }
 
-    public RpcMessage setRes(String res) {
-        this.res = res;
-        return this;
-    }
-
-    public JsonObject getBody() {
-        return body;
-    }
-
-    public RpcMessage setBody(JsonObject body) {
-        this.body = body;
-        return this;
-    }
-
     public Buffer encode(){
-        Buffer buffer = body.toBuffer();
+        Buffer buffer = this.payload;
         byte[] utf8String = MqttCodecUtil.encodeUtf8String(res);
         return Buffer.buffer(2+utf8String.length+4+buffer.length())
                 .appendUnsignedShort(utf8String.length)
@@ -54,6 +47,14 @@ public class RpcMessage {
                 .appendBytes(utf8String)
                 .appendBuffer(buffer);
     }
+
+
+
+    public JsonObject getBody() {
+        return body;
+    }
+
+
 
     public String getRes() {
         return res;

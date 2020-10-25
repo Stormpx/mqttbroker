@@ -1,8 +1,10 @@
-package com.stormpx;
+package com.stormpx.dispatcher;
 
+import com.stormpx.Constants;
 import com.stormpx.cluster.*;
-import com.stormpx.cluster.message.ActionLog;
+import com.stormpx.cluster.mqtt.ActionLog;
 import com.stormpx.cluster.mqtt.ClusterClient;
+import com.stormpx.dispatcher.api.Dispatcher;
 import com.stormpx.kit.*;
 import com.stormpx.store.*;
 import com.stormpx.store.rocksdb.Db;
@@ -16,7 +18,6 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
-import java.io.File;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Predicate;
@@ -96,6 +97,8 @@ public class DispatcherVerticle extends AbstractVerticle {
             JsonObject body = message.body().getJsonObject();
             messageDispatcher(body);
         });
+
+
         consumer.reSubscribeHandler(message->{
             String clientId = message.body();
             fetchSubscription(clientId)
@@ -244,7 +247,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
 
     private Future<JsonArray> fetchSubscription(String clientId) {
-        return sessionStore.fetchSubscription(clientId);
+        return sessionStore.getSubscription(clientId);
     }
 
     private Future<List<Integer>> unacknowledgedPacketId(JsonObject body) {
@@ -255,15 +258,16 @@ public class DispatcherVerticle extends AbstractVerticle {
 
 
     private Future<Void> clearSession(JsonObject body) {
-        Promise<Void> promise=Promise.promise();
         String clientId = body.getString("clientId");
         Future<Void> releaseLink = releaseLink(clientId);
-        Future<Void> future=sessionStore.fetchSubscription(clientId)
+        return sessionStore.getSubscription(clientId)
                     .compose(array->{
                         if (array!=null) {
-                            List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
+
                             this.topicFilter.clearSubscribe(clientId);
+
                             if (isCluster) {
+                                List<String> topicFilter = J.toJsonStream(array).map(json -> json.getString("topicFilter")).collect(Collectors.toList());
                                 List<String> unSubscribeList = topicFilter.stream().filter(tf -> !this.topicFilter.anySubscribed(tf)).collect(Collectors.toList());
                                 if (!unSubscribeList.isEmpty()) {
                                     ActionLog log = ActionLog.unSubscribe(clusterId, unSubscribeList);
@@ -271,22 +275,16 @@ public class DispatcherVerticle extends AbstractVerticle {
                                 }
                             }
                         }
-                        return Future.succeededFuture();
-                    });
-
-        CompositeFuture.all(releaseLink,future)
-                .setHandler(ar->{
-                    if (ar.succeeded()){
-                        sessionStore.del(clientId)
-                                .onComplete(promise);
+                        return releaseLink;
+                    })
+                    .compose(v->{
                         if (isCluster){
                             cluster.proposal(ActionLog.delSession(clusterId,clientId));
                         }
-                    }else{
-                        promise.fail(ar.cause());
-                    }
-                });
-        return promise.future();
+                        return sessionStore.del(clientId);
+                    })
+                    ;
+
     }
 
     private Future<Void> releaseLink(String clientId){
@@ -297,16 +295,14 @@ public class DispatcherVerticle extends AbstractVerticle {
                     promise.fail(t);
                 })
                 .onSuccess(list->{
-                    if (list==null||list.isEmpty()) {
-                        promise.complete();
-                        return;
-                    }
-                    List<Future> futures=list.stream()
+                    List<Future> futures=Optional.ofNullable(list).orElse(Collections.emptyList()).stream()
                             .filter(json->json.containsKey("id"))
                             .map(json->json.getString("id"))
                             .filter(Objects::nonNull)
                             .map(id-> modifyRefCnt(id,-1))
                             .collect(Collectors.toList());
+
+
                     CompositeFuture.all(futures)
                             .onComplete(ar->{
                                 if (ar.succeeded()){
@@ -423,12 +419,12 @@ public class DispatcherVerticle extends AbstractVerticle {
         }else{
             cluster.topicMatch(topic)
                     .onSuccess(r->{
-                        Collection<TopicFilter.SubscribeInfo> c = r.getSubscribeInfos();
+                        Collection<TopicFilter.SubscribeMatchResult> c = r.getSubscribeMatchResults();
                         if (logger.isDebugEnabled())
                             logger.debug("match list :{}",c);
                         Set<String> sendSet=new HashSet<>();
-                        for (TopicFilter.SubscribeInfo subscribeInfo : c) {
-                            JsonArray shareTopics = subscribeInfo.getAllMatchSubscribe()
+                        for (TopicFilter.SubscribeMatchResult subscribeMatchResult : c) {
+                            JsonArray shareTopics = subscribeMatchResult.getAllMatchSubscribe()
                                     .stream()
                                     .filter(TopicFilter.Entry::isShare)
                                     .map(TopicFilter.Entry::getTopicFilterName)
@@ -436,7 +432,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
                             JsonObject json = message.copy().put("shareTopics", shareTopics);
 
-                            String nodeId = subscribeInfo.getClientId();
+                            String nodeId = subscribeMatchResult.getClientId();
                             sendSet.add(nodeId);
                             if (nodeId.equals(clusterId)){
                                 dispatcherEvent(json);
@@ -487,7 +483,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                 });
             }
 
-            }
+        }
         if (match) {
             JsonObject copy = message.copy();
             vertx.eventBus().publish("_mqtt_message_dispatcher", UnSafeJsonObject.wrapper(copy));
@@ -601,7 +597,7 @@ public class DispatcherVerticle extends AbstractVerticle {
 
         if (!isCluster){
             messageStore.retainMap()
-                    .onFailure(t->logger.error("fetch retainMapWithReadIndex fail",t))
+                    .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
                     .onSuccess(map->{
                        map.entrySet()
                                .stream()
@@ -609,10 +605,12 @@ public class DispatcherVerticle extends AbstractVerticle {
                                .map(Map.Entry::getValue)
                                .filter(Objects::nonNull)
                                .forEach(id->{
-                                   messageStore.get(id)
-                                           .map(MessageObj::getMessage)
+                                   getMessage(id)
+                                           .onFailure(t->logger.error("get message:{} failed",t,id))
                                            .onSuccess(msg->{
-                                               vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.copy().put("retain",true)));
+                                               if (msg!=null){
+                                                   vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.getMessage().copy().put("retain",true)));
+                                               }
                                            });
                                });
                     });
@@ -652,7 +650,7 @@ public class DispatcherVerticle extends AbstractVerticle {
                             array.forEach(o->{
                                 messageStore.get(o.toString())
                                         .onSuccess(msg->{
-                                            if (msg!=null)
+                                            if (msg!=null&&!isExpiry(msg))
                                                 vertx.eventBus().send(address,UnSafeJsonObject.wrapper(msg.getMessage().copy().put("retain",true)));
                                         });
                             });
@@ -675,38 +673,62 @@ public class DispatcherVerticle extends AbstractVerticle {
                                 vertx.eventBus().send(address,UnSafeJsonObject.wrapper(link));
                             }
                         }else{
-                            messageStore.get(id)
-                                    .onFailure(t->logger.error("get message: {} fail cause:{}",id,t.getMessage()))
+                            getMessage(id).onFailure(t->logger.error("get message: {} failed ",t,id))
                                     .onSuccess(msgObj->{
-                                        if (msgObj!=null) {
-                                            JsonObject msg = msgObj.getMessage();
-                                            if (packetId==null&&isExpiry(msgObj)) {
-                                                return;
-                                            }
-                                            JsonObject message = msg.copy().mergeIn(link);
-                                            vertx.eventBus().send(address,UnSafeJsonObject.wrapper(message.put("dup",true)));
-                                        } else {
-                                            if (!isCluster) {
-                                                if (packetId!=null)
-                                                    sessionStore.release(clientId, packetId);
-                                            } else{
-                                                cluster.requestMessage(id)
-                                                        .onSuccess(messageObj->{
-                                                            JsonObject message = messageObj.getMessage();
-                                                            if (!isExpiry(messageObj)) {
-                                                                messageStore.set(id,messageObj);
-                                                                cluster.proposal(ActionLog.saveMessage(clusterId,id,false,null,0));
-                                                                vertx.eventBus().send(address, message.copy().mergeIn(link).put("dup", true));
-                                                            }
-                                                        });
-                                            }
-                                        }
+                                       if (msgObj!=null){
+                                           JsonObject msg = msgObj.getMessage();
+                                           JsonObject message = msg.copy().mergeIn(link);
+                                           vertx.eventBus().send(address,UnSafeJsonObject.wrapper(message.put("dup",true)));
+                                       }else{
+                                           if (packetId!=null)
+                                               sessionStore.release(clientId, packetId);
+                                       }
                                     });
                         }
                     }
                 });
     }
 
+    /**
+     *  get message from local or cluster
+     * @param id
+     * @return
+     */
+    private Future<MessageObj> getMessage(String id){
+        Promise<MessageObj> promise=Promise.promise();
+        messageStore.get(id)
+                .onComplete(ar->{
+                    if (ar.succeeded()){
+                        MessageObj messageObj = ar.result();
+                        if (messageObj!=null||!isCluster){
+                            if (isExpiry(messageObj)) {
+                                if (messageObj!=null) {
+                                    messageStore.del(id);
+                                    messageObj = null;
+                                }
+                            }
+                            promise.tryComplete(messageObj);
+                        }else{
+                            cluster.requestMessage(id)
+                                    .onFailure(promise::tryFail)
+                                    .onSuccess(msg->{
+                                        if (msg!=null) {
+                                            if (!isExpiry(msg)) {
+                                                messageStore.set(id, msg);
+                                                cluster.proposal(ActionLog.saveMessage(clusterId, id, false, null, 0));
+                                            }else{
+                                                msg=null;
+                                            }
+                                        }
+                                        promise.tryComplete(msg);
+                                    });
+                        }
+                    }else{
+                        promise.fail(ar.cause());
+                    }
+                });
+        return promise.future();
+    }
 
     private boolean isExpiry(MessageObj messageObj){
         if (messageObj==null)
@@ -729,7 +751,12 @@ public class DispatcherVerticle extends AbstractVerticle {
     private Future<Buffer> requestMessage(JsonObject body){
         String id = body.getString("id");
         return messageStore.get(id)
-                .map(messageObj -> messageObj==null?null:new ObjCodec().encodeMessageObj(messageObj))
+                .map(messageObj ->{
+                    if (messageObj==null)
+                        cluster.proposal(ActionLog.delMessage(clusterId,id));
+
+                    return messageObj==null?null:new ObjCodec().encodeMessageObj(messageObj);
+                })
                 .onFailure(t->logger.error("get message id:{} fail",t,id));
     }
 

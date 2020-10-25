@@ -1,5 +1,8 @@
 package com.stormpx.store;
 
+import com.stormpx.dispatcher.ClientSession;
+import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.mqtt.MqttSubscription;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -8,10 +11,10 @@ import java.util.List;
 
 public interface SessionStore {
 
+    Future<ClientSession> get(String clientId);
 
-    Future<SessionObj> get(String clientId);
 
-    Future<Void> save(SessionObj sessionObj);
+    Future<Void> save(ClientSession clientSession);
 
     Future<Void> del(String clientId);
 
@@ -19,13 +22,15 @@ public interface SessionStore {
 
     Future<Long> getExpiryTimestamp(String clientId);
 
-    Future<Void> addLink(String clientId,JsonObject link);
+    Future<Void> addLink(String clientId,MessageLink link);
+
+    Future<Void> addOfflineLink(String clientId,MessageLink link);
+
+    Future<List<MessageLink>> links(String clientId);
 
     Future<String> release(String clientId, int packetId);
 
     Future<String> receive(String clientId,int packetId);
-
-    Future<List<JsonObject>> links(String clientId);
 
 
     Future<Void> addPacketId(String clientId,int packetId);
@@ -34,15 +39,15 @@ public interface SessionStore {
 
     Future<Void> removePacketId(String clientId,int packetId);
 
-    Future<Void> saveWill(String clientId, JsonObject will);
+    Future<Void> saveWill(String clientId, DispatcherMessage will);
 
-    Future<JsonObject> getWill(String clientId);
+    Future<DispatcherMessage> getWill(String clientId);
 
     Future<Void> delWill(String clientId);
 
-    Future<Void> addSubscription(String clientId, JsonArray jsonArray);
+    Future<Void> addSubscription(String clientId,List<MqttSubscription> subscription);
 
-    Future<JsonArray> fetchSubscription(String clientId);
+    Future<List<MqttSubscription>> getSubscription(String clientId);
 
     Future<Void> deleteSubscription(String clientId,List<String> topics);
 

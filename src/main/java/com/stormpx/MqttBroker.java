@@ -7,8 +7,14 @@ import com.stormpx.cluster.ClusterVerticle;
 import com.stormpx.cluster.mqtt.RetainMatchResult;
 import com.stormpx.cluster.mqtt.SessionResult;
 import com.stormpx.cluster.mqtt.TopicMatchResult;
-import com.stormpx.cluster.message.ActionLog;
+import com.stormpx.cluster.mqtt.ActionLog;
+import com.stormpx.dispatcher.DispatcherVerticle;
+import com.stormpx.dispatcher.EventContext;
+import com.stormpx.dispatcher.MessageContext;
+import com.stormpx.kit.GeneralMessageCodec;
 import com.stormpx.kit.UnSafeJsonObject;
+import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.store.MessageLink;
 import com.stormpx.store.MessageObj;
 import com.stormpx.store.SessionObj;
 import io.vertx.config.ConfigRetriever;
@@ -79,13 +85,17 @@ public class MqttBroker {
     public static Future<Void> start(Vertx vertx,JsonObject config){
         setLogLevel(config);
 
-        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class,UnSafeJsonObject.CODEC);
-        vertx.eventBus().registerDefaultCodec(ActionLog.class,ActionLog.CODEC);
-        vertx.eventBus().registerDefaultCodec(SessionResult.class,SessionResult.CODEC);
-        vertx.eventBus().registerDefaultCodec(RetainMatchResult.class, RetainMatchResult.CODEC);
-        vertx.eventBus().registerDefaultCodec(TopicMatchResult.class, TopicMatchResult.CODEC);
-        vertx.eventBus().registerDefaultCodec(SessionObj.class,SessionObj.CODEC);
-        vertx.eventBus().registerDefaultCodec(MessageObj.class,MessageObj.CODEC);
+        vertx.eventBus().registerDefaultCodec(UnSafeJsonObject.class, new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(ActionLog.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(SessionResult.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(RetainMatchResult.class, new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(TopicMatchResult.class, new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(SessionObj.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(MessageObj.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(DispatcherMessage.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(MessageContext.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(EventContext.class,new GeneralMessageCodec<>(){});
+        vertx.eventBus().registerDefaultCodec(MessageLink.class,new GeneralMessageCodec<>(){});
 
         if (clusterEnable(config)) {
             config.put("isCluster",true);
@@ -112,6 +122,13 @@ public class MqttBroker {
             return true;
         }
     }
+
+    private void registerDefaultCodec(Vertx vertx,Class<?>... clazz){
+        for (Class<?> c : clazz) {
+            vertx.eventBus().registerDefaultCodec(c, new GeneralMessageCodec(){});
+        }
+    }
+
 
     private static Future<String> tryDeployClusterVerticle(Vertx vertx,JsonObject config){
         if (!config.getBoolean("isCluster",false)){
