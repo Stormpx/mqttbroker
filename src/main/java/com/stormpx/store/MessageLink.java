@@ -30,6 +30,10 @@ public class MessageLink {
          return packetId==null;
     }
 
+    public boolean isDiscard(){
+         return id==null;
+    }
+
     public boolean isRetain() {
         return retain;
     }

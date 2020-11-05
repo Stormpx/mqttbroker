@@ -3,15 +3,13 @@ package com.stormpx.store.rocksdb;
 import com.stormpx.dispatcher.DispatcherMessage;
 import com.stormpx.kit.Codec;
 import com.stormpx.store.BlockStore;
-import com.stormpx.store.MessageObj;
 import com.stormpx.store.MessageStore;
-import com.stormpx.store.ObjCodec;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
+import io.vertx.core.parsetools.impl.JsonParserImpl;
 import org.rocksdb.*;
 
 import java.util.HashMap;
@@ -29,6 +27,7 @@ public class RocksDBMessageStore extends BlockStore implements MessageStore {
         this.vertx = vertx;
         this.rocksDB = Db.db();
         this.MESSAGE_COLUMN_FAMILY = Db.messageColumnFamily();
+
     }
 
 
@@ -52,7 +51,7 @@ public class RocksDBMessageStore extends BlockStore implements MessageStore {
     public Future<DispatcherMessage> get(String id) {
         return readOps(() -> {
             byte[] bytes = rocksDB.get(MESSAGE_COLUMN_FAMILY, id.getBytes());
-            return bytes == null ? null : Codec.decodeDispatcherMessage(bytes);
+            return bytes == null ? null : Codec.decodeDispatcherMessage(Buffer.buffer(bytes));
         });
     }
 
@@ -90,6 +89,7 @@ public class RocksDBMessageStore extends BlockStore implements MessageStore {
     public Future<String> putRetain(String topic, String id) {
         return writeOps(() -> {
             String key = "retain-" + topic;
+            System.out.println(id);
             byte[] value = rocksDB.get(key.getBytes());
             if (id == null) {
                 //del
@@ -110,7 +110,7 @@ public class RocksDBMessageStore extends BlockStore implements MessageStore {
             String key = "refcnt-" + id;
             byte[] keyBytes = key.getBytes();
             byte[] value = rocksDB.get(MESSAGE_COLUMN_FAMILY, keyBytes);
-            return Buffer.buffer(value).getInt(0);
+            return value==null?0:Buffer.buffer(value).getInt(0);
         });
     }
 

@@ -9,7 +9,7 @@ vertx写的mqtt broker
 ```
 git clone https://github.com/Stormpx/mqttbroker.git
 cd /jar
-java -jar mqttbroker-1.0-fat.jar -c /config1.json -c /config2.json
+java -jar mqttbroker-1.0-fat.jar -c /config1.yaml -c /config2.json
 ```
 
 特性
@@ -26,123 +26,97 @@ java -jar mqttbroker-1.0-fat.jar -c /config1.json -c /config2.json
 配置
 -----------
 
-```json
-{
-  "sni": false,
-  "tcp_no_delay": false,
-  "verticle_instance": 6,
-  "mqtt": {
-    "max_message_expiry_interval": 600,
-    "max_session_expiry_interval": 600,
-    "maximum_qos": 2,
-    "maximum_packet_size": 268435455,
-    "receive_maximum": 65535,
-    "topic_alias_maximum": 65535,
-    "retain_available": true,
-    "server_keep_alive": 10,
-    "wildcard_subscription_available": true,
-    "subscription_identifier_available": true,
-    "shared_subscription_available": true
-  },
-  "tcp": {
-    "host": "0.0.0.0",
-    "port": 11883,
-    "ssl": true,
-    "key_cert": [
-      {
-        "key_file": "/privkey.pem",
-        "cert_file": "/cert.pem"
-      }
-    ]
-  },
-  "ws": {
-    "enable": true,
-    "host": "0.0.0.0",
-    "port": 18183,
-    "path": "/mqtt",
-    "ssl": true,
-    "key_cert": [
-      {
-        "key_file": "/privkey.pem",
-        "cert_file": "/cert.pem"
-      }
-    ]
-  },
+```yaml
+sni: false
+tcp_no_delay: false
 
-  "log_level": "info",
-  "log_dir": "/log",
+verticle_instance: 6
 
-  "save_enable": true,
-  "save_interval": 120,
-  "save_dir": "/data"
-}
+mqtt:
+
+  max_message_expiry_interval: 6000
+  max_session_expiry_interval: 6000
+  maximum_qos: 2
+  #byte
+  maximum_packet_size: 268435455
+  receive_maximum: 65535
+  topic_alias_maximum: 65535
+  retain_available: true
+  #second
+  server_keep_alive: 10
+  wildcard_subscription_available: true
+  subscription_identifier_available: true
+  shared_subscription_available: true
+
+tcp:
+  enable: true
+  host: 0.0.0.0
+  port: 11883
+  ssl: false
+  key_cert:
+    - key_file: /privkey.pem
+      cert_file: /cert.pem
+
+ws:
+  enable: true
+  host: 0.0.0.0
+  port: 18183
+  path: /mqtt
+  ssl: false
+  key_cert:
+    - key_file: /privkey.pem
+      cert_file: /cert.pem
+
+log_level: info
+log_dir: /log
+
+save_dir: /foo
 ```
 认证 鉴权
 -----------
 通过配置`auth`选择认证的方式 默认是`anonymous`
-```json
-{
-  "auth": "anonymous|config|http"  
-}
+```yaml
+auth: config|http|eventbus|redis
 ```
 
 
 config认证 鉴权
 --- 
 `password_hash` 密码的hash算法
-```json
-{
-  "password_hash": "none|md5|sha|sha256"
-}
+```yaml
+password_hash: none|md5|sha|sha256
 ```
 ### config认证 
 必填 `username`  
 可选 `password`  
 可选`ip`不为空时会参与验证    
 可选 `user_property` 用户属性 认证成功并且协议版本是MQTTv5时会添加进CONACK里返回 
-```json
-{
-  "users": [
-      {
-        "username": "user1",
-        "password": "password",
-        "ip": "0.0.0.0",
-        "user_property": {
-          "key": "value"
-        }
-      },
-      {
-         "username": "user2"
-      }
-    ]
-}
+```yaml
+users:
+  - username: user1
+    password: password
+    ip: 0.0.0.0
+    user_property:
+      key: value
+
+  - username: user2
 ```
 
 ### config鉴权
 `max_qos`在SUBSCIBE中限制订阅等级  
 `user_property`鉴权通过会在PUBACK/PUBREC/SUBACK中返回到客户端
-```json
-{
-"acl": [
-    {
-      "client":"client1",
-      "permission":[
-        {
-          "topic": "topic1",
-          "max_qos":2,
-          "action": "pub|sub|both",
-          "user_property": {
-            "key": "value"
-          }
-        },
-        {
-          "topic": "topic2",
-          "action": "pub"
-        }
-      ]
-    }
-  ]
-}
+```yaml
+acl:
+  - client: client1
+    permission:
+      - topic: topic1
+        max_qos: 2
+        action: pub|sub|both
+        user_property:
+          key: value
+      - topic: topic2
+        action: pub
+
 ```
 
 http认证 鉴权
@@ -151,15 +125,14 @@ http认证 鉴权
 `appkey`不为空时会带着请求  
  `http_authentication_url` 登陆认证url  
   `http_authorization_url` pub/sub 授权url
-```json
-{
-  "appkey": "appkey",
-  "http_authentication_url": "https://localhost/authentication",
-  "http_authorization_url": "https://localhost/authorization"
-}
+```yaml
+appkey: appkey
+http_authentication_url: 'https://localhost/authentication'
+http_authorization_url: 'https://localhost/authorization'
+user_agent: 'UA/1.0'
 ```
 ### 登陆认证url
-请求体
+请求体 application/json
 ```json
 {
   "client": "client1",

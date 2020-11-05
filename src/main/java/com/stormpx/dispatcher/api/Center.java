@@ -1,6 +1,7 @@
 package com.stormpx.dispatcher.api;
 
 import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.dispatcher.MessageContext;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -36,7 +37,7 @@ public class Center extends DK {
         return Future.succeededFuture(true);
     }
 
-    public Future<Boolean> dispatcher(DispatcherMessage message){
+    public Future<Boolean> dispatcher(MessageContext message){
         vertx.eventBus().send(Center.DISPATCHER_MESSAGE, message);
         return Future.succeededFuture(true);
     }

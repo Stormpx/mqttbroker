@@ -7,7 +7,6 @@ import com.stormpx.kit.value.Values1;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.store.BlockStore;
 import com.stormpx.store.MessageLink;
-import com.stormpx.store.SessionObj;
 import com.stormpx.store.SessionStore;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.Future;
@@ -330,7 +329,7 @@ public class RocksDBSessionStore extends BlockStore implements SessionStore {
             try {
                 byte[] key = willKey(clientId);
                 byte[] value = rocksDB.get(SESSION_COLUMN_FAMILY,key);
-                return value==null?null: Codec.decodeDispatcherMessage(value);
+                return value==null?null: Codec.decodeDispatcherMessage(Buffer.buffer(value));
             } catch (RocksDBException e) {
                 logger.error("get client:{} will failed",e,clientId);
                 throw  e;

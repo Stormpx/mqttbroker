@@ -15,18 +15,17 @@ import io.vertx.core.TimeoutStream;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class SessionService {
     private final static Logger logger= LoggerFactory.getLogger(SessionService.class);
 
-    private SessionStore sessionStore;
+    protected SessionStore sessionStore;
 
     private Map<String, TimeoutStream> willTimerMap=new HashMap<>();
 
-    private DispatcherContext dispatcherContext;
+    protected DispatcherContext dispatcherContext;
 
 
     public SessionService(SessionStore sessionStore, DispatcherContext dispatcherContext) {
@@ -35,20 +34,20 @@ public class SessionService {
     }
 
 
-    protected Future<Boolean> getOrCreateSession(String clientId,boolean cleanSession){
+    protected Future<Boolean> getOrCreateSession(String id,String clientId,boolean cleanSession){
         if (cleanSession){
             // publish will immediately
             //if session still connecting sessionStore.getWill() result may be null
             return sessionStore.getWill(clientId)
                     .onSuccess(msg->{
                         if (msg!=null)
-                            dispatcherContext.getMessageService().exchange(new MessageContext(msg));
+                            dispatcherContext.getMessageService().dispatcher(new MessageContext(msg));
                     })
                     .compose(v->delSession(clientId))
                     .map(true);
         }else{
             return sessionStore.getExpiryTimestamp(clientId)
-                    .map(this::isExpiry)
+                    .map(ClientSession::isExpiry)
                     .onSuccess(b->{
                         if (b)
                             delSession(clientId);
@@ -66,7 +65,7 @@ public class SessionService {
      */
     public Future<Boolean> acceptSession(ClientAcceptCommand command){
         takenOverSession(command.getClientId(),command.getSessionId(),command.isCleanSession());
-        return getOrCreateSession(command.getClientId(),command.isCleanSession())
+        return getOrCreateSession(command.getId(),command.getClientId(),command.isCleanSession())
                 .onSuccess(expiry->{
                    if (!expiry){
                        stopWillTimer(command.getClientId());
@@ -94,7 +93,7 @@ public class SessionService {
         Set<Integer> set=new HashSet<>();
         List<MessageLink> messageId=new ArrayList<>();
         for (MessageLink link : links) {
-            if (link.getId() == null) {
+            if (link.isDiscard()) {
                 // packetId
                 set.add(link.getPacketId());
             } else {
@@ -119,21 +118,19 @@ public class SessionService {
         }
     }
 
-    protected void takenOverSession(String clientId,String id,boolean cleanSession){
-        takenOverLocalSession(clientId, id, cleanSession);
-    }
-
-    public void takenOverLocalSession(String clientId,String id,boolean cleanSession){
-        TakenOverCommand command = new TakenOverCommand(clientId, id, cleanSession);
+    private void takenOverSession(String clientId,String id,boolean cleanSession){
+        TakenOverCommand command = new TakenOverCommand(clientId, id, cleanSession,false);
         dispatcherContext.getVertx().eventBus().publish("_mqtt_session_taken_over",command);
     }
 
-    private boolean isExpiry(Long timestamp){
-        return timestamp != null && Instant.now().getEpochSecond() >= timestamp;
+    public void takenOverLocalSession(String clientId,String id,boolean cleanSession){
+        TakenOverCommand command = new TakenOverCommand(clientId, id, cleanSession,true);
+        dispatcherContext.getVertx().eventBus().publish("_mqtt_session_taken_over",command);
     }
 
 
-    public void stopWillTimer(String clientId){
+
+    private void stopWillTimer(String clientId){
         TimeoutStream timeoutStream = willTimerMap.remove(clientId);
         if (timeoutStream!=null)
             timeoutStream.cancel();
@@ -161,7 +158,7 @@ public class SessionService {
 
     private Future<Void> releaseLink(List<MessageLink> links){
         List<Future> list=links.stream()
-                .filter(link->link.getId()!=null)
+                .filter(link->!link.isDiscard())
                 .map(link->dispatcherContext.getMessageService().modifyRefCnt(link.getId(),-1))
                 .collect(Collectors.toList())
         ;
@@ -171,7 +168,7 @@ public class SessionService {
 
 
     public void link(MessageLink messageLink){
-        if (messageLink.getPacketId()==null){
+        if (messageLink.isOffLink()){
             sessionStore.addOfflineLink(messageLink.getClientId(),messageLink)
                 .onFailure(t->logger.error("add offline link failed clientId:{} link:{}" ,t,messageLink.getClientId(),messageLink));
         }else {
@@ -226,14 +223,14 @@ public class SessionService {
             long willDelayInterval = Math.min(closeSessionCommand.getWillDelayInterval(),closeSessionCommand.getSessionExpiryInterval());
             if (willDelayInterval<=0){
                 // publish will
-                dispatcherContext.getMessageService().exchange(new MessageContext(closeSessionCommand.getWillMessage()));
+                dispatcherContext.getMessageService().dispatcher(new MessageContext(closeSessionCommand.getWillMessage()));
             }else if (!closeSessionCommand.isTakenOver()){
 
                 var timeout=dispatcherContext.getVertx().timerStream(willDelayInterval)
                     .handler(id->{
                         willTimerMap.remove(clientId);
                         sessionStore.delWill(clientId);
-                        dispatcherContext.getMessageService().exchange(new MessageContext(closeSessionCommand.getWillMessage().copy()));
+                        dispatcherContext.getMessageService().dispatcher(new MessageContext(closeSessionCommand.getWillMessage().copy()));
                     });
                 //save will
                 sessionStore.saveWill(clientId,closeSessionCommand.getWillMessage());

@@ -25,7 +25,6 @@ public class BlockStore {
     protected <T> Future<T> ops(boolean order,StoreOps<T> ops){
 
         Promise<T> promise=Promise.promise();
-
         vertx.executeBlocking(p->{
             try {
                 promise.tryComplete(ops.ops());

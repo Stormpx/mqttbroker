@@ -2,10 +2,14 @@ package com.stormpx.dispatcher;
 
 import com.stormpx.kit.TopicFilter;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 
 public class DispatcherContext {
 
+
     private Vertx vertx;
+
+    private JsonObject config;
 
     private TopicFilter topicFilter;
 
@@ -13,16 +17,12 @@ public class DispatcherContext {
 
     private SessionService sessionService;
 
-    private boolean cluster;
+    private SubscriptionService subscriptionService;
 
-    public DispatcherContext(Vertx vertx, TopicFilter topicFilter, MessageService messageService, SessionService sessionService,boolean cluster) {
+    public DispatcherContext(Vertx vertx, TopicFilter topicFilter) {
         this.vertx = vertx;
         this.topicFilter = topicFilter;
-        this.messageService = messageService;
-        this.sessionService = sessionService;
-        this.cluster=cluster;
     }
-
 
     public Vertx getVertx() {
         return vertx;
@@ -40,8 +40,32 @@ public class DispatcherContext {
         return sessionService;
     }
 
-    public boolean isCluster() {
-        return cluster;
+
+    public SubscriptionService getSubscriptionService() {
+        return subscriptionService;
     }
 
+    public DispatcherContext setMessageService(MessageService messageService) {
+        this.messageService = messageService;
+        return this;
+    }
+
+    public DispatcherContext setSessionService(SessionService sessionService) {
+        this.sessionService = sessionService;
+        return this;
+    }
+
+    public DispatcherContext setSubscriptionService(SubscriptionService subscriptionService) {
+        this.subscriptionService = subscriptionService;
+        return this;
+    }
+
+    public JsonObject getConfig() {
+        return config;
+    }
+
+    public DispatcherContext setConfig(JsonObject config) {
+        this.config = config;
+        return this;
+    }
 }

@@ -10,6 +10,7 @@ public class SubscriptionsCommand {
     private List<MqttSubscription> mqttSubscriptions;
     private List<String> matchTopics;
     private String address;
+    private boolean recover;
 
 
     public String getId() {
@@ -54,6 +55,15 @@ public class SubscriptionsCommand {
 
     public SubscriptionsCommand setMatchTopics(List<String> matchTopics) {
         this.matchTopics = matchTopics;
+        return this;
+    }
+
+    public boolean isRecover() {
+        return recover;
+    }
+
+    public SubscriptionsCommand setRecover(boolean recover) {
+        this.recover = recover;
         return this;
     }
 }

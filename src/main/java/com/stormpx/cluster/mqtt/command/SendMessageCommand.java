@@ -5,16 +5,26 @@ import com.stormpx.dispatcher.DispatcherMessage;
 import java.util.Set;
 
 public class SendMessageCommand {
-    private Set<String> nodeIds;
+    private String nodeId;
+    private Set<String> shareTopics;
     private DispatcherMessage message;
 
-    public SendMessageCommand(Set<String> nodeIds, DispatcherMessage message) {
-        this.nodeIds = nodeIds;
+    public SendMessageCommand(String nodeId, DispatcherMessage message) {
+        this.nodeId = nodeId;
         this.message = message;
     }
 
-    public Set<String> getNodeIds() {
-        return nodeIds;
+    public String getNodeId() {
+        return nodeId;
+    }
+
+    public Set<String> getShareTopics() {
+        return shareTopics;
+    }
+
+    public SendMessageCommand setShareTopics(Set<String> shareTopics) {
+        this.shareTopics = shareTopics;
+        return this;
     }
 
     public DispatcherMessage getMessage() {

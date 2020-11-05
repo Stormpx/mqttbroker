@@ -30,19 +30,20 @@ import static com.stormpx.Constants.SSL;
 
 public class MqttServerImpl implements MqttServer {
     private final static Logger logger = LoggerFactory.getLogger(MqttServer.class);
-    private final static Set<Integer> set=new HashSet<>();
 
     private Vertx vertx;
+    private boolean repeat;
     private MqttServerOption mqttServerOption;
     private NetServer netServer;
     private HttpServer httpServer;
     private Handler<Throwable>  exceptionHandler;
     private Handler<MqttContext> handler;
 
-    public MqttServerImpl(Vertx vertx) {
-        this.vertx =vertx;
-    }
 
+    public MqttServerImpl(Vertx vertx, boolean repeat) {
+        this.vertx = vertx;
+        this.repeat = repeat;
+    }
 
     @Override
     public MqttServer exceptionHandler(Handler<Throwable> handler) {
@@ -66,6 +67,7 @@ public class MqttServerImpl implements MqttServer {
 
         JsonObject tcpJson = config.getJsonObject(TCP, new JsonObject());
         boolean tcp=tcpJson.getBoolean(Constants.ENABLE,true);
+        mqttServerOption.setTcpEnable(tcp);
         if (tcp){
             JsonArray jsonArray = tcpJson.getJsonArray(KEY_CERT);
             if (jsonArray!=null){
@@ -75,13 +77,9 @@ public class MqttServerImpl implements MqttServer {
                             String keyPath = json.getString(KEY_FILE);
                             String certPath = json.getString(CERT_FILE);
                             if (keyPath!=null&&certPath!=null){
-                                //log control
-                                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
-                                localMap.computeIfAbsent("tcp"+keyPath+certPath,k->{
+                                if (!repeat){
                                     logger.info("mqtt tcp key_path:{} cert_path:{}",keyPath,certPath);
-                                    return keyPath+certPath;
-                                });
-
+                                }
                                 pemKeyCertOptions.addKeyPath(keyPath);
                                 pemKeyCertOptions.addCertPath(certPath);
                             }
@@ -95,6 +93,7 @@ public class MqttServerImpl implements MqttServer {
 
         JsonObject wsJson = config.getJsonObject(WS, new JsonObject());
         Boolean ws = wsJson.getBoolean(Constants.ENABLE, false);
+        mqttServerOption.setWsEnable(ws);
         if (ws){
             JsonArray jsonArray = wsJson.getJsonArray(KEY_CERT);
             if (jsonArray!=null){
@@ -104,12 +103,9 @@ public class MqttServerImpl implements MqttServer {
                             String keyPath = json.getString(KEY_FILE);
                             String certPath = json.getString(CERT_FILE);
                             if (keyPath!=null&&certPath!=null){
-                                //log control
-                                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
-                                localMap.computeIfAbsent("ws"+keyPath+certPath,k->{
-                                    logger.info("mqtt ws key_path:{} cert_path:{}",keyPath,certPath);
-                                    return keyPath+certPath;
-                                });
+                                if (!repeat){
+                                    logger.info("mqtt tcp key_path:{} cert_path:{}",keyPath,certPath);
+                                }
                                 pemKeyCertOptions.addKeyPath(keyPath);
                                 pemKeyCertOptions.addCertPath(certPath);
                             }
@@ -122,7 +118,9 @@ public class MqttServerImpl implements MqttServer {
             mqttServerOption.setWsPath(wsJson.getString(Constants.PATH,"/mqtt"));
         }
         this.mqttServerOption=mqttServerOption;
-
+        if (!mqttServerOption.isTcpEnable()&&!mqttServerOption.isWsEnable()){
+            throw new RuntimeException("tcp enable false && ws enable false");
+        }
         return this;
     }
 
@@ -174,13 +172,12 @@ public class MqttServerImpl implements MqttServer {
         this.netServer.connectHandler(netSocket-> handleNetSocket(netSocket,handler,exceptionHandler));
         this.netServer.listen(ar->{
             if (ar.succeeded()){
-                LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
-                localMap.computeIfAbsent(netServerOptions.getPort(),(k)->{
+                if (!repeat){
                     logger.info("start tcp server success port:{} ssl:{}", netServerOptions.getPort(),netServerOptions.isSsl());
-                    return netServerOptions.getPort();
-                });
+                }
                 promise.complete();
             }else {
+
                 promise.fail(ar.cause());
             }
         });
@@ -211,12 +208,9 @@ public class MqttServerImpl implements MqttServer {
         });
          this.httpServer.listen(ar->{
              if (ar.succeeded()){
-                 LocalMap<Object, Object> localMap = vertx.sharedData().getLocalMap("storm");
-                 localMap.computeIfAbsent(httpServerOptions.getPort(),(k)->{
-
+                 if (!repeat){
                      logger.info("start http server success port:{} path:{} ssl:{}",httpServerOptions.getPort(),wsPath,httpServerOptions.isSsl());
-                     return httpServerOptions.getPort();
-                 });
+                 }
                  promise.complete();
              }else {
                  promise.fail(ar.cause());

@@ -23,16 +23,29 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     @Override
     public void start(Future<Void> startFuture) throws Exception {
+        this.brokerController=new BrokerController(vertx);
+
         onConfigRefresh(config());
+
         vertx.eventBus().<JsonObject>localConsumer(":config_change::",message->{
            onConfigRefresh(message.body());
         });
 
-        this.brokerController=new BrokerController(vertx);
 
 
         initAuth()
                 .compose(v->startServer())
+                .compose(v->{
+                    Integer verticleInstance = config().getInteger("verticle_instance", 0);
+                    if (!config().getBoolean("repeat",false)&& verticleInstance -1 > 0){
+                        Promise<String > promise=Promise.promise();
+                        vertx.deployVerticle(MqttBrokerVerticle.class,new DeploymentOptions().setInstances(verticleInstance-1).setConfig(config().copy().put("repeat",true)),promise);
+                        return promise.future();
+                    }
+                    return Future.succeededFuture();
+                })
+                .map((Void)null)
+//                .onSuccess(v->logger.info("verticle:{} started",deploymentID()))
                 .setHandler(startFuture);
     }
 
@@ -51,6 +64,8 @@ public class MqttBrokerVerticle extends AbstractVerticle {
             }
         } );
         if (this.authenticator!=null){
+            if (!config().getBoolean("repeat",false))
+                logger.info("init authenticator: {}",this.authenticator.name());
             return this.authenticator.init(vertx,config());
         }
         return Future.failedFuture("can't find authenticator :"+auth);
@@ -59,7 +74,7 @@ public class MqttBrokerVerticle extends AbstractVerticle {
 
     private Future<Void> startServer(){
 
-        this.mqttServer = new MqttServerImpl(vertx).setConfig(config());
+        this.mqttServer = new MqttServerImpl(vertx,config().getBoolean("repeat",false)).setConfig(config());
         Session session=new Session(vertx);
         mqttServer
                 .exceptionHandler(t->{

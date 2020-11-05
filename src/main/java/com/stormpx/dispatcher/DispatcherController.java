@@ -4,15 +4,13 @@ import com.stormpx.dispatcher.api.Dispatcher;
 import com.stormpx.dispatcher.api.Center;
 import com.stormpx.dispatcher.api.Session;
 import com.stormpx.dispatcher.command.*;
+import com.stormpx.kit.Codec;
 import com.stormpx.kit.TopicFilter;
-import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.store.MessageLink;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-
-import java.util.List;
 
 public class DispatcherController {
     private final static Logger logger= LoggerFactory.getLogger(DispatcherController.class);
@@ -24,12 +22,14 @@ public class DispatcherController {
         this.dispatcherContext = dispatcherContext;
         initSessionApi();
         initDispatcherApi();
+        initClusterApi();
     }
 
     public void initDispatcherApi(){
         Vertx vertx = dispatcherContext.getVertx();
         SessionService sessionService = dispatcherContext.getSessionService();
         MessageService messageService = dispatcherContext.getMessageService();
+        SubscriptionService subscriptionService = dispatcherContext.getSubscriptionService();
         TopicFilter topicFilter = dispatcherContext.getTopicFilter();
 
         vertx.eventBus()
@@ -46,7 +46,7 @@ public class DispatcherController {
                 .<MessageContext>localConsumer(Dispatcher.MESSAGE_DISPATCHER)
                 .handler(message->{
                     MessageContext messageContext = message.body();
-                    messageService.exchange(messageContext);
+                    messageService.dispatcher(messageContext);
                 });
 
 
@@ -54,20 +54,7 @@ public class DispatcherController {
                 .<SubscriptionsCommand>localConsumer(Dispatcher.TOPIC_SUBSCRIBE)
                 .handler(message->{
                     SubscriptionsCommand command = message.body();
-                    List<MqttSubscription> mqttSubscriptions = command.getMqttSubscriptions();
-                    //client save subscribe
-                    sessionService.saveSubscription(command.getClientId(),mqttSubscriptions);
-
-                    //verticle subscribe
-                    mqttSubscriptions.forEach(
-                            s-> topicFilter.subscribe(s.getTopicFilter(),command.getId(),s.getQos(),s.isNoLocal(),s.isRetainAsPublished(),s.getSubscriptionId())
-                    );
-
-                    //match retain message and callback
-                    messageService.matchRetainMessage(command.getMatchTopics(), msg-> {
-                        if (msg!=null)
-                            vertx.eventBus().send(command.getAddress(),new MessageContext(msg.setRetain(true)));
-                    });
+                    subscriptionService.subscribe(command);
                     message.reply(null);
                 });
 
@@ -75,17 +62,7 @@ public class DispatcherController {
                 .<UnSubscriptionsCommand>localConsumer(Dispatcher.TOPIC_UNSUBSCRIBE)
                 .handler(message->{
                     UnSubscriptionsCommand command = message.body();
-                    //client del subscribe
-                    sessionService.delSubscription(command.getClientId(),command.getTopics());
-
-
-                    //verticle unSubscribe
-                    command.getVerticleUnSubscribeTopic().forEach(topic->{
-                        boolean anySubscribe = topicFilter.unSubscribe(topic, command.getId());
-                        if (dispatcherContext.isCluster()&&!anySubscribe){
-
-                        }
-                    });
+                    subscriptionService.unSubscribe(command);
                     message.reply(null);
                 });
 
@@ -142,6 +119,7 @@ public class DispatcherController {
                     String clientId = message.body();
                     sessionService.getSession(clientId)
                             .onFailure(t->message.fail(500,t.getMessage()))
+                            .map(Codec::encode)
                             .onSuccess(message::reply);
                 });
 
@@ -168,7 +146,8 @@ public class DispatcherController {
                 .<MessageContext>localConsumer(Center.DISPATCHER_MESSAGE)
                 .handler(message->{
                     MessageContext body = message.body();
-                    messageService.exchange(body);
+                    body.setFromCluster(true);
+                    messageService.dispatcher(body);
                 });
 
         vertx.eventBus().<String>localConsumer(Center.RESET_SESSION)

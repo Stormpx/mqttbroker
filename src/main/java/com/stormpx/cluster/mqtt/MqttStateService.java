@@ -146,15 +146,15 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
-    public Future<Collection<TopicFilter.SubscribeMatchResult>> topicMatchesWithReadIndex(String topic){
-        Promise<Collection<TopicFilter.SubscribeMatchResult>> promise=Promise.promise();
+    public Future<Collection<TopicFilter.MatchResult>> topicMatchesWithReadIndex(String topic){
+        Promise<Collection<TopicFilter.MatchResult>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
                         logger.error("topicMatchesWithReadIndex failed",ar.cause());
                         pending.add(v-> topicMatchesWithReadIndex(topic).onComplete(promise));
                     }else {
-                        Collection<TopicFilter.SubscribeMatchResult> matches = mqttMetaData.getTopicFilter().matches(topic);
+                        Collection<TopicFilter.MatchResult> matches = mqttMetaData.getTopicFilter().matches(topic);
                         promise.complete(matches);
 
                     }
@@ -203,6 +203,9 @@ public class MqttStateService implements StateService {
             return m;
         }, (q1, q2) -> q1);
         return map;
+    }
+    public Set<String> fetchMessageIndex(String id){
+        return Optional.ofNullable(mqttMetaData.getMessageIndex(id)).orElseGet(Collections::emptySet);
     }
 
 

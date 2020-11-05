@@ -25,6 +25,8 @@ public class BrokerController {
     private final static Logger logger= LoggerFactory .getLogger(BrokerController.class);
     private Vertx vertx;
 
+    private String controlId=UUID.randomUUID().toString();
+
     private JsonObject mqttConfig;
 
     private Map<String,ClientController> controllerMap;
@@ -84,7 +86,7 @@ public class BrokerController {
 
 
     private String verticleId(){
-        return vertx.getOrCreateContext().deploymentID();
+        return controlId;
     }
 
     public JsonObject getMqttConfig() {
@@ -108,8 +110,6 @@ public class BrokerController {
         if (message.isExpiry())
             return;
 
-
-        String id = messageContext.getId();
         String clientId = messageContext.getClientId();
         String topic = message.getTopic();
         MqttQoS qos = message.getQos();
@@ -117,53 +117,37 @@ public class BrokerController {
         Set<String> shareTopics = messageContext.getShareTopics();
 
         //find match  subscriber
-        Collection<TopicFilter.SubscribeMatchResult> matches = topicFilter.matches(topic);
+        Collection<TopicFilter.MatchResult> matches = topicFilter.matches(topic);
         if (matches.isEmpty()&&!retain){
             return;
         }
-        for (TopicFilter.SubscribeMatchResult subscribeMatchResult : matches) {
-            ClientController clientController = get(subscribeMatchResult.getClientId());
+        for (TopicFilter.MatchResult matchResult : matches) {
+            ClientController clientController = get(matchResult.getClientId());
             if (clientController == null) continue;
 
-            TopicFilter.Entry maxQosEntry=null;
-            List<Integer> subscriptionIds=new ArrayList<>();
+            MatchResultReducer reducer = new MatchResultReducer(matchResult.getAllMatchSubscribe())
+                    .reduce(shareTopics);
 
-            for (TopicFilter.Entry e : subscribeMatchResult.getAllMatchSubscribe()) {
-                //if isShare subscribe publish
-                if (e.isShare()) {
-                    if (!shareTopics.contains(e.getTopicFilterName()))
-                        continue;
-                    //share subscribe publish
-                    clientController.send(
-                            message.copy()
-                                    .setQos(MqttQoS.valueOf(Math.min(qos.value(),e.getMqttQoS().value())))
-                                    .setRetain(e.isRetainAsPublished() && retain),
-                            e.getSubscriptionIdentifier()!=0?Collections.singletonList(e.getSubscriptionIdentifier()): Collections.emptyList());
+            //share subscribe publish
+            reducer.getShareTopic()
+                    .forEach(e->{
+                        clientController.send(
+                                message.copy()
+                                        .setQos(MqttQoS.valueOf(Math.min(qos.value(),e.getMqttQoS().value())))
+                                        .setRetain(e.isRetainAsPublished() && retain),
+                                e.getSubscriptionIdentifier()!=0?Collections.singletonList(e.getSubscriptionIdentifier()): Collections.emptyList());
+                    });
 
-                    continue;
-                }
-
-                if (maxQosEntry==null||e.getMqttQoS().value()>maxQosEntry.getMqttQoS().value()) {
-                    maxQosEntry = e;
-                }
-
-                if (e.getSubscriptionIdentifier()!=0) {
-                    subscriptionIds.add(e.getSubscriptionIdentifier());
-                }
-            }
-
+            TopicFilter.Entry maxQosEntry=reducer.getMaxQosEntry();
             if (maxQosEntry!=null) {
-                if (maxQosEntry.isNoLocal() && clientController.getMqttContext().session().clientIdentifier().equals(clientId))
-                    continue;
-
-
-                clientController.send(
-                        message
-                                .copy()
-                                .setRetain( maxQosEntry.isRetainAsPublished() && retain)
-                                .setQos(MqttQoS.valueOf(Math.min(qos.value(), maxQosEntry.getMqttQoS().value()))),
-                        subscriptionIds);
-
+                if (!maxQosEntry.isNoLocal() || !clientController.getMqttContext().session().clientIdentifier().equals(clientId)) {
+                    clientController.send(
+                            message
+                                    .copy()
+                                    .setRetain( maxQosEntry.isRetainAsPublished() && retain)
+                                    .setQos(MqttQoS.valueOf(Math.min(qos.value(), maxQosEntry.getMqttQoS().value()))),
+                            reducer.getSubscriptionIds());
+                }
             }
 
         }
@@ -258,8 +242,17 @@ public class BrokerController {
     }
 
     public void clearSubscribe(String clientId){
-        //todo
-        topicFilter.clearSubscribe(clientId);
+        List<String> topics=topicFilter.clearSubscribe(clientId)
+                .filter(topic->!topicFilter.anySubscribed(topic))
+                .collect(Collectors.toList());
+
+        if (!topics.isEmpty()){
+            UnSubscriptionsCommand command = new UnSubscriptionsCommand();
+            command.setId(verticleId())
+                    .setVerticleUnSubscribeTopic(topics);
+            dispatcher.unSubscribeTopic(command);
+        }
+
     }
 
 

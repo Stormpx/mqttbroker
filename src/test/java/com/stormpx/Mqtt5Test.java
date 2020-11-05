@@ -47,7 +47,7 @@ public class Mqtt5Test {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
         String userDir=System.getProperty("user.dir");
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",6).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt5")).setHandler(context.completing());
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",3).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt5")).setHandler(context.completing());
 
         /*DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
@@ -66,7 +66,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client1.connect();
 
@@ -89,7 +88,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client1.connect();
         client1.unsubscribeWith().addTopicFilter("/t/#").send();
@@ -102,7 +100,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client1.connect();
 
@@ -111,7 +108,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client2.connect();
 
@@ -148,7 +144,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client1.connect();
 
@@ -225,7 +220,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client1.connect();
 
@@ -235,7 +229,6 @@ public class Mqtt5Test {
                 .serverHost("localhost")
                 .serverPort(11883)
                 .useMqttVersion5()
-                .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                 .build().toBlocking();
         client2.connect();
 
@@ -257,7 +250,7 @@ public class Mqtt5Test {
                         a.getAndIncrement();
                         Assertions.assertEquals(p.getTopic().toString(),"/test");
                     });
-
+//            Thread.sleep(2000);
 //            CountDownLatch countDownLatch = new CountDownLatch(2);
 //            countDownLatch.await();
             Assertions.assertEquals(1,a.get());

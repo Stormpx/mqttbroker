@@ -22,6 +22,8 @@ public class MqttSubscription {
         this.retainHandling = retainHandling;
     }
 
+
+
     public String getTopicFilter() {
         return topicFilter;
     }

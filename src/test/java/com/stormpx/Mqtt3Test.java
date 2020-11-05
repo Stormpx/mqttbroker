@@ -182,7 +182,7 @@ public class Mqtt3Test {
             Assertions.assertEquals(publish.getTopic().toString(),"/retain/qos1");
             Assertions.assertEquals(publish.getQos(),MqttQos.AT_LEAST_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
-
+            System.out.println("ffffffffffffffffffff");
 
             client2.publishWith().topic("/retain/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
             client1.subscribeWith()
@@ -195,6 +195,8 @@ public class Mqtt3Test {
             Assertions.assertEquals(publish.getTopic().toString(),"/retain/qos2");
             Assertions.assertEquals(publish.getQos(),MqttQos.EXACTLY_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
+
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

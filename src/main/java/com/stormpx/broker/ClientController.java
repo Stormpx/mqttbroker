@@ -226,6 +226,7 @@ public class ClientController {
      * @param mqttContext
      */
     private void accept(MqttContext mqttContext){
+        this.eventController=new EventController(vertx,mqttContext,brokerController,this);
         brokerController.tryAcceptSession(mqttContext.session().clientIdentifier(),mqttContext.isCleanSession(),mqttContext.id(),getAddress())
                 .onFailure(t->{
                     logger.error(" try accept"+" client:"+mqttContext.session().clientIdentifier()+  " failed :{}",t.getMessage());
@@ -235,7 +236,7 @@ public class ClientController {
                     if (!present){
                         brokerController.clearSubscribe(mqttContext.session().clientIdentifier());
                     }
-                    this.eventController=new EventController(vertx,mqttContext,brokerController,this);
+
                     mqttContext.subscribeHandler(this::onSubscribe)
                             .unSubscribeHandler(this::onUnSubscribe)
                             .publishHandler(this::onPublish)
@@ -363,6 +364,7 @@ public class ClientController {
     private void onPublish( MqttPublishMessage message){
         // auth
         String clientId = mqttContext.session().clientIdentifier();
+
         authenticator.authorizePub(clientId, message.getTopic())
                 .onFailure(t-> logger.debug("authorize client:{} publish failed  ", clientId))
                 .onFailure(mqttContext::handleException)
@@ -374,6 +376,7 @@ public class ClientController {
                                 .setExpiryTimeStamp(message.getMessageExpiryInterval(),brokerController.getMqttConfig().getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL))
                                 .setClientId(clientId);
 
+                        logger.info("client:{} publish message on topic:{} id:{} qos:{} ",clientId,message.getTopic(),messageContext.getId(),message.getQos());
 
                         if (message.getQos() == MqttQoS.EXACTLY_ONCE) {
                             session.packetId(PacketIdActionCommand.addPacketId(clientId, message.getPacketId()))

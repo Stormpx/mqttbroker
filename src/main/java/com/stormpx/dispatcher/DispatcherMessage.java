@@ -91,6 +91,25 @@ public class DispatcherMessage {
         return messageExpiryTimestamp-Instant.now().getEpochSecond();
     }
 
+    public DispatcherMessage setId(String id) {
+        this.id = id;
+        return this;
+    }
+
+    public DispatcherMessage setTopic(String topic) {
+        this.topic = topic;
+        return this;
+    }
+
+    public DispatcherMessage setPayload(Buffer payload) {
+        this.payload = payload;
+        return this;
+    }
+
+    public DispatcherMessage setProperties(List<MqttProperties> properties) {
+        this.properties = properties;
+        return this;
+    }
 
     public DispatcherMessage setQos(MqttQoS qos) {
         this.qos = qos;

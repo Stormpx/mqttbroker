@@ -1,9 +1,8 @@
 package com.stormpx.dispatcher;
 
-import com.stormpx.cluster.Cluster;
-import com.stormpx.cluster.mqtt.ActionLog;
+import com.stormpx.broker.MatchResultReducer;
+import com.stormpx.broker.RetainMap;
 import com.stormpx.kit.TopicFilter;
-import com.stormpx.kit.TopicUtil;
 import com.stormpx.store.MessageStore;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -13,75 +12,41 @@ import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.util.*;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 public class MessageService {
-    private final static Logger logger= LoggerFactory.getLogger(MessageService.class);
+    protected final static Logger logger= LoggerFactory.getLogger(MessageService.class);
 
-    private Vertx vertx;
 
-    private MessageStore messageStore;
+    protected MessageStore messageStore;
 
-    private boolean isCluster;
 
-    private Cluster cluster;
-
-    private DispatcherContext dispatcherContext;
+    protected DispatcherContext dispatcherContext;
 
     private MessageHook messageHook;
+
+    public MessageService( MessageStore messageStore, DispatcherContext dispatcherContext) {
+        this.messageStore = messageStore;
+        this.dispatcherContext = dispatcherContext;
+    }
 
     public MessageService setMessageHook(MessageHook messageHook) {
         this.messageHook = messageHook;
         return this;
     }
 
-//    public void exchangeFormCluster(MessageContext messageContext){
-//        String topic = messageContext.getMessage().getTopic();
-//        boolean retain = messageContext.getMessage().isRetain();
-//        cluster.topicMatch(topic)
-//                .onSuccess(r->{
-//                    Collection<TopicFilter.SubscribeMatchResult> c = r.getSubscribeMatchResults();
-//                    if (logger.isDebugEnabled())
-//                        logger.debug("match list :{}",c);
-//                    Set<String> sendSet=new HashSet<>();
-//
-//                    for (TopicFilter.SubscribeMatchResult subscribeMatchResult : c) {
-//                        Set<String> shareTopics= subscribeMatchResult.getAllMatchSubscribe()
-//                                .stream()
-//                                .filter(TopicFilter.Entry::isShare)
-//                                .map(TopicFilter.Entry::getTopicFilterName)
-//                                .collect(Collectors.toSet());
-//
-//                        messageContext.setShareTopics(shareTopics);
-//
-//
-//                        String nodeId = subscribeMatchResult.getClientId();
-//                        sendSet.add(nodeId);
-//                        if (nodeId.equals(cluster.getId())){
-//                            exchange(messageContext);
-//                        }else {
-//                            cluster.sendMessage(nodeId,json);
-//                        }
-//                    }
-//                    if (retain){
-//                        Set<String> nodeIds = r.getAllNodeIds();
-//                        nodeIds.stream().filter(Predicate.not(sendSet::contains)).forEach(id->{
-//                            cluster.sendMessage(id,message);
-//                        });
-//                    }
-//                });
-//    }
 
-
-    public void exchange(MessageContext messageContext){
+    public void dispatcher(MessageContext messageContext){
         String id = messageContext.getId();
         DispatcherMessage message = messageContext.getMessage();
         int qos = message.getQos().value();
         String topic = message.getTopic();
         boolean retain = message.isRetain();
         Buffer payloads = message.getPayload();
-        Collection<TopicFilter.SubscribeMatchResult> collection = dispatcherContext.getTopicFilter().matches(topic);
+
+        // allowed shared subscriptions
+        Set<String> shareTopics = messageContext.getShareTopics();
+
+        Collection<TopicFilter.MatchResult> collection = dispatcherContext.getTopicFilter().matches(topic);
         boolean match = !collection.isEmpty();
         if (match||retain) {
             if (qos > 0) {
@@ -98,13 +63,10 @@ public class MessageService {
         if (match) {
             collection.forEach(info->{
 
-                Set<String> hitShareSet = info.getAllMatchSubscribe()
-                        .stream()
-                        .filter(TopicFilter.Entry::isShare)
-                        .map(TopicFilter.Entry::getTopicFilterName)
-                        .collect(Collectors.toSet());
+                MatchResultReducer reducer = new MatchResultReducer(info.getAllMatchSubscribe());
+                reducer.reduce(shareTopics);
 
-                MessageContext context = new MessageContext(messageContext.getMessage()).setShareTopics(hitShareSet);
+                MessageContext context = new MessageContext(messageContext.getMessage()).setShareTopics(reducer.getShareTopicName());
 
                 sendTo(info.getClientId(),context);
 
@@ -114,15 +76,50 @@ public class MessageService {
     }
 
     protected void sendTo(String id,MessageContext messageContext){
-        vertx.eventBus().send(id+"_mqtt_message_dispatcher",messageContext);
+        dispatcherContext.getVertx().eventBus().send(id+"_mqtt_message_dispatcher",messageContext);
     }
 
 
+    public Future<DispatcherMessage> getMessage(String id){
+        return getLocalMessage(id);
+
+    }
+
+    public Future<DispatcherMessage> getLocalMessage(String id){
+        DispatcherMessage message = messageMap.get(id);
+        if (message!=null){
+            return Future.succeededFuture(message);
+        }else {
+            return messageStore.get(id)
+                    .onSuccess(msg->messageMap.computeIfAbsent(id,k->msg))
+                    .onFailure(t->logger.error("get message by id: {} failed",id,t));
+
+        }
+
+    }
+
+    public void matchRetainMessage(List<String> topics, Handler<DispatcherMessage> handler){
+        retainMap()
+                .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
+                .onSuccess(v-> new RetainMap(this.retainMap)
+                        .match(topics)
+                        .forEach(sp->matchLocalMessage(sp.getKey(),sp.getValue(),handler)));
+    }
+
+    protected void matchLocalMessage(String topic,String id,Handler<DispatcherMessage> handler){
+        getLocalMessage(id).onSuccess(dm->{
+            if (dm==null||dm.isExpiry()){
+                //del retain
+                saveRetain(topic,null);
+            } else{
+                handler.handle(dm);
+            }
+        });
+    }
 
     private Map<String,Integer> refMap =new HashMap<>();
     private Map<String,DispatcherMessage> messageMap=new HashMap<>();
     private Map<String,String> retainMap;
-
 
 
 
@@ -132,6 +129,7 @@ public class MessageService {
                 .map(i->{
                     int count=i==null?0:i;
                     count+=delta;
+                    logger.info("id :{} count:{}",id,count);
                     //no one used
                     if (count <= 0){
                         //del message
@@ -146,46 +144,6 @@ public class MessageService {
 
     }
 
-
-
-    public Future<DispatcherMessage> getMessage(String id){
-        return getLocalMessage(id);
-
-    }
-
-    public Future<DispatcherMessage> getLocalMessage(String id){
-        DispatcherMessage message = messageMap.get(id);
-        if (message!=null){
-            return Future.succeededFuture(message);
-        }else {
-            return getMessage0(id)
-                    .onSuccess(msg->messageMap.computeIfAbsent(id,k->msg))
-                    .onFailure(t->logger.error("get message by id: {} failed",id,t));
-
-        }
-
-    }
-
-    public void matchRetainMessage(List<String> topics, Handler<DispatcherMessage> handler){
-        messageStore.retainMap()
-                .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
-                .onSuccess(map->{
-                    map.entrySet()
-                            .stream()
-                            .filter(e->topics.stream().anyMatch(o-> TopicUtil.matches(o,e.getKey())))
-                            .filter(e->e.getValue()!=null)
-                            .forEach(e-> getMessage(e.getValue()).onSuccess(dm->{
-                                if (dm==null||dm.isExpiry()){
-                                    //del retain
-                                    saveRetain(e.getKey(),null);
-                                } else{
-                                    handler.handle(dm);
-                                }
-                            }));
-                });
-    }
-
-
     /**
      * try get ref from refmap
      * @param id
@@ -193,7 +151,7 @@ public class MessageService {
      */
     private Future<Integer> getRef(String id){
         Integer ref = refMap.get(id);
-        if (ref!=null){
+        if (ref==null){
             return messageStore.getRef(id)
                     .onFailure(t->logger.error("get message ref failed",t))
                     .onSuccess(i->refMap.computeIfAbsent(id,k->i));
@@ -202,15 +160,14 @@ public class MessageService {
         }
     }
 
-    protected Future<DispatcherMessage> getMessage0(String id){
-        return messageStore.get(id);
-    }
 
-    private void saveMessage(DispatcherMessage dispatcherMessage){
-        messageMap.put(dispatcherMessage.getId(),dispatcherMessage);
-        messageStore.save(dispatcherMessage.getId(),dispatcherMessage);
-        if (messageHook!=null)
-            messageHook.onSaveMessage(dispatcherMessage);
+    protected void saveMessage(DispatcherMessage dispatcherMessage){
+        if (messageMap.get(dispatcherMessage.getId())==null){
+            messageMap.put(dispatcherMessage.getId(), dispatcherMessage);
+            messageStore.save(dispatcherMessage.getId(), dispatcherMessage);
+            if (messageHook != null)
+                messageHook.onSaveMessage(dispatcherMessage);
+        }
     }
 
     private void delMessage(String id){
@@ -227,7 +184,7 @@ public class MessageService {
             return Future.succeededFuture();
     }
 
-    private void saveRetain(String topic,String id){
+    protected void saveRetain(String topic,String id){
         retainMap()
                 .onSuccess(v->{
                     String oid = retainMap.get(topic);
@@ -235,9 +192,11 @@ public class MessageService {
                     messageStore.putRetain(topic, id)
                             .onFailure(t->logger.error("save retain topic:{} id:{} failed",t,topic,id));
                     if (oid!=null&&!oid.equals(id)){
+                        System.out.println("111111111111111111111111111111111111111111aaaaaaa");
                         modifyRefCnt(oid,-1);
                     }
                     if (id!=null){
+                        System.out.println("aaaaaggggggggggggggggggggggggggggggggggggggggggggg");
                         modifyRefCnt(id,1);
                     }
                 });

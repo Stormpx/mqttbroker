@@ -4,8 +4,6 @@ import java.time.Instant;
 import java.util.*;
 
 public class MessageContext {
-    //broker id
-    private String id;
     //publish clientId
     private String clientId;
 
@@ -15,23 +13,17 @@ public class MessageContext {
 
     private Set<String> shareTopics=new HashSet<>();
 
+    private boolean isFromCluster;
+
     private DispatcherMessage message;
 
 
 
     public MessageContext(DispatcherMessage message) {
         this.message = message;
-        this.id=message.getId();
-        if (id==null)
-            init();
     }
 
 
-    public void init(){
-        if (message.getQos().value()!=0){
-            this.id = UUID.randomUUID().toString().replaceAll("-", "");
-        }
-    }
 
 
 
@@ -62,7 +54,7 @@ public class MessageContext {
 
 
     public String getId() {
-        return id;
+        return message.getId();
     }
 
     public String getClientId() {
@@ -100,6 +92,15 @@ public class MessageContext {
 
     public List<Integer> getSubscriptionIds() {
         return subscriptionIds;
+    }
+
+    public boolean isFromCluster() {
+        return isFromCluster;
+    }
+
+    public MessageContext setFromCluster(boolean fromCluster) {
+        isFromCluster = fromCluster;
+        return this;
     }
 }
 

@@ -7,15 +7,15 @@ import java.util.Set;
 
 public class TopicMatchResult {
 
-    private Collection<TopicFilter.SubscribeMatchResult> subscribeMatchResults;
+    private Collection<TopicFilter.MatchResult> matchResults;
     private Set<String> allNodeIds;
 
-    public Collection<TopicFilter.SubscribeMatchResult> getSubscribeMatchResults() {
-        return subscribeMatchResults;
+    public Collection<TopicFilter.MatchResult> getMatchResults() {
+        return matchResults;
     }
 
-    public TopicMatchResult setSubscribeMatchResults(Collection<TopicFilter.SubscribeMatchResult> subscribeMatchResults) {
-        this.subscribeMatchResults = subscribeMatchResults;
+    public TopicMatchResult setMatchResults(Collection<TopicFilter.MatchResult> matchResults) {
+        this.matchResults = matchResults;
         return this;
     }
 

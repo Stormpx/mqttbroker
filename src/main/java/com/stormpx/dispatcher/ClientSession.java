@@ -4,6 +4,7 @@ import com.stormpx.message.MqttWill;
 import com.stormpx.mqtt.MqttSubscription;
 import com.stormpx.store.MessageLink;
 
+import java.time.Instant;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +23,11 @@ public class ClientSession {
 
     public ClientSession(String clientId) {
         this.clientId = clientId;
+    }
+
+
+    public static boolean isExpiry(Long timestamp){
+        return timestamp != null && Instant.now().getEpochSecond() >= timestamp;
     }
 
 

@@ -4,44 +4,47 @@ import io.netty.handler.codec.mqtt.MqttQoS;
 
 import java.util.*;
 import java.util.function.BiConsumer;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class TopicFilter {
 
 
-    private Map<String, SubscribeObj> topics;
+    private Map<String, TopicGroup> topics;
 
     public TopicFilter() {
         topics=new HashMap<>();
     }
 
 
-    private SubscribeObj getObj(String topic){
-        SubscribeObj subscribeObj = topics.get(topic);
-        if (subscribeObj==null){
-            subscribeObj=new SubscribeObj();
-            topics.put(topic,subscribeObj);
+    private TopicGroup getTopic(String topic){
+        TopicGroup topicGroup = topics.get(topic);
+        if (topicGroup ==null){
+            topicGroup =new TopicGroup();
+            topics.put(topic, topicGroup);
         }
-        return subscribeObj;
+        return topicGroup;
     }
 
 
     public boolean subscribe(String topic, String clientId, MqttQoS mqttQoS,boolean noLocal,boolean retainAsPublish,int identifier){
         if (topic==null||topic.length()==0)
             return false;
+
+        boolean b = anySubscribed(topic);
+
         if (topic.startsWith("$share/")){
             String[] split = topic.split("/", 3);
             if (!split[1].equals("#")&&!split[1].equals("+")&&split.length==3){
-                /*if (noLocal)
-                    throw new ProtocolErrorException("it is a Protocol Error to set the No Local bit to 1 on a Shared Subscription");
-*/
-                getObj(split[2]).addShare(topic,split[1],clientId,mqttQoS, false,retainAsPublish,identifier);
-                return true;
+                Entry entry = new Entry(topic, clientId, false, retainAsPublish, mqttQoS, identifier, true);
+                getTopic(split[2]).getOrCreateShareGroup(split[1]).subscribe(entry);
+                return b;
             }
         }
 
-        getObj(topic).addNonShare(topic,clientId,mqttQoS,noLocal,retainAsPublish, identifier);
-        return true;
+
+        Entry entry = new Entry(topic, clientId, noLocal, retainAsPublish, mqttQoS, identifier, false);
+        getTopic(topic).getGroup().subscribe(entry);
+        return b;
     }
 
 
@@ -52,11 +55,12 @@ public class TopicFilter {
         if (topic.startsWith("$share/")){
             String[] split = topic.split("/", 3);
             if (!split[1].equals("#")&&!split[1].equals("+")&&split.length==3){
-                return getObj(split[2]).shareSubscribed(clientId,split[1]);
+                return getTopic(split[2]).getShareGroup(split[1]).subscribed(clientId);
             }
         }
-        return getObj(topic).nonShareSubscribed(clientId);
+        return getTopic(topic).getGroup().subscribed(clientId);
     }
+
 
     public boolean unSubscribe(String topic, String clientId){
         if (topic==null||topic.length()==0)
@@ -64,60 +68,54 @@ public class TopicFilter {
         if (topic.startsWith("$share/")){
             String[] split = topic.split("/", 3);
             if (!split[1].equals("#")&&!split[1].equals("+")&&split.length==3){
-                getObj(split[2]).removeShare(split[1],clientId);
+
+                SubscribeGroup shareGroup = getTopic(split[2]).getShareGroup(split[1]);
+                if (shareGroup!=null)
+                    shareGroup.unSubscribe(clientId);
+
                 return anySubscribed(topic);
             }
         }
-        getObj(topic).removeNonShare(clientId);
+        getTopic(topic).getGroup().unSubscribe(clientId);
+
         return anySubscribed(topic);
     }
 
-    public void clearSubscribe(String clientId){
-        if (clientId==null)return;
-        topics.values().forEach(so->{
-            so.removeNonShare(clientId);
-            so.removeShare(clientId);
-        });
+    public Stream<String> clearSubscribe(String clientId){
+        if (clientId==null)return Stream.empty();
+        return topics.values()
+                .stream()
+                .map(so->{
+                    Entry entry = so.getGroup().unSubscribe(clientId);
+                    Stream<String> shareStream= so.shareGroups.values().stream().map(g -> g.unSubscribe(clientId)).filter(Objects::nonNull).map(Entry::getTopicFilterName);
+                    return Stream.concat(Optional.ofNullable(entry).map(Entry::getTopicFilterName).stream(),shareStream);
+                })
+                .reduce(Stream::concat)
+                .orElseGet(Stream::empty)
+        ;
     }
 
 
-  /*  public Collection<Entry> matches(String topic){
-        List<Entry> list=new ArrayList<>();
-        Collection<Entry> collection=topics.entrySet()
-                .stream()
-                .filter(e->TopicUtil.matches(e.getKey(),topic))
-                .map(Map.Entry::getValue)
-                .peek(subscribeObj -> list.addAll(subscribeObj.shareSubscribeList()))
-                .map(SubscribeObj::subscribeList)
-                .reduce(new HashMap<Entry, Entry>(),(map, s2)->{
-                    s2.forEach(subscribeEntry ->
-                            map.compute(subscribeEntry,
-                                    (k, v)-> v!=null&&v.getMqttQoS().value()> subscribeEntry.getMqttQoS().value()?v: subscribeEntry));
-                    return map;
-                },(s1,s2)->s1)
-                .values();
 
-        list.addAll(collection);
+    public boolean anySubscribed(String topic){
+        if (topic.startsWith("$share/")){
+            String[] split = topic.split("/", 3);
+            if (!split[1].equals("#")&&!split[1].equals("+")&&split.length==3){
 
-        return list;
-    }*/
-
-
-    public boolean anySubscribed(String topicFilter){
-        SubscribeObj subscribeObj = topics.get(topicFilter);
-        if (subscribeObj==null)
-            return false;
-
-        return subscribeObj.anySubscribed();
+                SubscribeGroup shareGroup = getTopic(split[2]).getShareGroup(split[1]);
+                return shareGroup!=null&&!shareGroup.isEmpty();
+            }
+        }
+        return !getTopic(topic).getGroup().isEmpty();
     }
 
     public boolean anyMatch(String topic){
         return topics.entrySet().stream().anyMatch(t->TopicUtil.matches(t.getKey(),topic)&&t.getValue().anySubscribed());
     }
 
-    public Collection<SubscribeMatchResult> matches(String topic){
-        BiConsumer<Map<String, SubscribeMatchResult>, Entry> consumer=(map, e)->{
-            var subscribeInfo = map.computeIfAbsent(e.getClientId(), (k) -> new SubscribeMatchResult(e.getClientId()));
+    public Collection<MatchResult> matches(String topic){
+        BiConsumer<Map<String, MatchResult>, Entry> consumer=(map, e)->{
+            var subscribeInfo = map.computeIfAbsent(e.getClientId(), (k) -> new MatchResult(e.getClientId()));
             subscribeInfo.allMatchSubscribe.add(e);
         };
 
@@ -125,7 +123,7 @@ public class TopicFilter {
                 .stream()
                 .filter(e->TopicUtil.matches(e.getKey(),topic))
                 .map(Map.Entry::getValue)
-                .reduce(new HashMap<String, SubscribeMatchResult>(),(map, sObj)->{
+                .reduce(new HashMap<String, MatchResult>(),(map, sObj)->{
                     sObj.subscribeList().forEach(e-> consumer.accept(map,e));
                     sObj.shareSubscribeList().forEach(e-> consumer.accept(map,e));
                     return map;
@@ -135,70 +133,47 @@ public class TopicFilter {
     }
 
 
-
-
-
-
-
-    private class SubscribeObj{
+    private class TopicGroup {
 
         private Map<String,SubscribeGroup> shareGroups;
         private SubscribeGroup group;
 
-        public SubscribeObj() {
+        public TopicGroup() {
             this.shareGroups =new HashMap<>();
             this.group=new SubscribeGroup();
         }
 
-
-        public void addNonShare(String topicName,String clientId, MqttQoS qos,boolean noLocal,boolean retainAsPublished,int subscriptionIdentifier){
-            Entry entry = new Entry(topicName, clientId, noLocal, retainAsPublished, qos, subscriptionIdentifier, false);
-            group.subscribe(entry);
-        }
-        public void addShare(String topicName,String shareName,String clientId, MqttQoS qos,boolean noLocal,boolean retainAsPublished,int subscriptionIdentifier){
-            Entry entry = new Entry(topicName, clientId, noLocal, retainAsPublished, qos, subscriptionIdentifier, true);
-            SubscribeGroup subscribeGroup = shareGroups.computeIfAbsent(shareName, (k) -> new SubscribeGroup());
-            subscribeGroup.subscribe(entry);
+        public SubscribeGroup getGroup(){
+            return group;
         }
 
-        public void removeNonShare(String clientId){
-            group.unSubscribe(clientId);
-        }
-        public void removeShare(String clientId){
-            shareGroups.values().forEach(g->g.unSubscribe(clientId));
+        public SubscribeGroup getShareGroup(String shareName){
+            return shareGroups.get(shareName);
         }
 
-        public void removeShare(String shareName,String clientId){
-            SubscribeGroup subscribeGroup = shareGroups.get(shareName);
-            if (subscribeGroup!=null)
-                subscribeGroup.unSubscribe(clientId);
+        public SubscribeGroup getOrCreateShareGroup(String shareName){
+            return shareGroups.computeIfAbsent(shareName, (k) -> new SubscribeGroup());
         }
 
-        public boolean nonShareSubscribed(String clientId){
-            return group.subscribed(clientId);
+        public Collection<SubscribeGroup> shareGroups(){
+            return shareGroups.values();
         }
-        public boolean shareSubscribed(String clientId,String shareName){
-            SubscribeGroup subscribeGroup = shareGroups.get(shareName);
-            return subscribeGroup!=null&&subscribeGroup.subscribed(clientId);
-        }
-
 
         public Collection<Entry> subscribeList(){
             return group.getAll();
         }
-        public Collection<Entry> shareSubscribeList(){
+        public Stream<Entry> shareSubscribeList(){
             return shareGroups
                     .values()
                     .stream()
                     .map(SubscribeGroup::chooseOne)
                     .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .collect(Collectors.toList());
+                    .map(Optional::get);
 
         }
 
         public boolean anySubscribed(){
-            return !group.isEmpty()||shareGroups.values().stream().anyMatch(g -> !g.isEmpty());
+            return !group.isEmpty()||shareGroups().stream().anyMatch(g -> !g.isEmpty());
         }
 
     }
@@ -217,8 +192,9 @@ public class TopicFilter {
             map.put(entry.clientId,entry);
         }
 
-        public void unSubscribe(String clientId){
-            map.remove(clientId);
+        public Entry unSubscribe(String clientId){
+            Entry entry = map.remove(clientId);
+            return entry;
         }
 
         public Optional<Entry> chooseOne(){
@@ -243,11 +219,11 @@ public class TopicFilter {
     }
 
 
-    public class SubscribeMatchResult {
+    public class MatchResult {
         private String clientId;
         private List<Entry> allMatchSubscribe=new LinkedList<>();
 
-         SubscribeMatchResult(String clientId) {
+         MatchResult(String clientId) {
             this.clientId = clientId;
 
         }

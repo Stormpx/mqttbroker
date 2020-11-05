@@ -1,7 +1,6 @@
 package com.stormpx.cluster.mqtt;
 
 import com.stormpx.dispatcher.ClientSession;
-import com.stormpx.store.SessionObj;
 
 public class SessionResult {
     private boolean isLocal;
