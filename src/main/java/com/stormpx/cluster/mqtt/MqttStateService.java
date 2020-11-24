@@ -4,10 +4,9 @@ import com.stormpx.cluster.LogEntry;
 import com.stormpx.cluster.MemberType;
 import com.stormpx.cluster.MqttCluster;
 import com.stormpx.cluster.StateService;
-import com.stormpx.cluster.message.ActionLog;
 import com.stormpx.cluster.message.RpcMessage;
 import com.stormpx.cluster.message.ClusterMessage;
-import com.stormpx.cluster.net.ClientRequest;
+import com.stormpx.cluster.net.ClientExtendRequest;
 import com.stormpx.cluster.net.Response;
 import com.stormpx.cluster.snapshot.SnapshotContext;
 import com.stormpx.cluster.snapshot.SnapshotReader;
@@ -76,8 +75,8 @@ public class MqttStateService implements StateService {
 
 
     @Override
-    public void handle(ClientRequest clientRequest) {
-        ClusterMessage clusterMessage = clientRequest.getClusterMessage();
+    public void handle(ClientExtendRequest clientExtendRequest) {
+        ClusterMessage clusterMessage = clientExtendRequest.getClusterMessage();
 
         String nodeId = clusterMessage.getFromId();
 
@@ -86,7 +85,7 @@ public class MqttStateService implements StateService {
         String res = prcMessage.getRes();
         Function<JsonObject, Future<?>> function = handlerMap.get(res);
         if (function==null){
-            clientRequest.response(false,requestId,Buffer.buffer());
+            clientExtendRequest.response(false,requestId,Buffer.buffer());
         }else{
             JsonObject body = prcMessage.getBody();
             body.put("rpc-nodeId",nodeId)
@@ -113,9 +112,9 @@ public class MqttStateService implements StateService {
                     .setHandler(ar->{
                         if (ar.succeeded()){
                             Response response = ar.result();
-                            clientRequest.response(response.isSuccess(),requestId, response.getPayload());
+                            clientExtendRequest.response(response.isSuccess(),requestId, response.getPayload());
                         }else{
-                            clientRequest.response(false,requestId,Buffer.buffer());
+                            clientExtendRequest.response(false,requestId,Buffer.buffer());
                         }
                     });
         }
@@ -147,15 +146,15 @@ public class MqttStateService implements StateService {
         return promise.future();
     }
 
-    public Future<Collection<TopicFilter.SubscribeInfo>> topicMatchesWithReadIndex(String topic){
-        Promise<Collection<TopicFilter.SubscribeInfo>> promise=Promise.promise();
+    public Future<Collection<TopicFilter.MatchResult>> topicMatchesWithReadIndex(String topic){
+        Promise<Collection<TopicFilter.MatchResult>> promise=Promise.promise();
         mqttCluster.readIndex()
                 .setHandler(ar->{
                     if (ar.failed()){
                         logger.error("topicMatchesWithReadIndex failed",ar.cause());
                         pending.add(v-> topicMatchesWithReadIndex(topic).onComplete(promise));
                     }else {
-                        Collection<TopicFilter.SubscribeInfo> matches = mqttMetaData.getTopicFilter().matches(topic);
+                        Collection<TopicFilter.MatchResult> matches = mqttMetaData.getTopicFilter().matches(topic);
                         promise.complete(matches);
 
                     }
@@ -204,6 +203,9 @@ public class MqttStateService implements StateService {
             return m;
         }, (q1, q2) -> q1);
         return map;
+    }
+    public Set<String> fetchMessageIndex(String id){
+        return Optional.ofNullable(mqttMetaData.getMessageIndex(id)).orElseGet(Collections::emptySet);
     }
 
 

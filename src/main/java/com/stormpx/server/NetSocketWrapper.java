@@ -12,13 +12,18 @@ import io.netty.handler.timeout.IdleStateHandler;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.impl.NetSocketInternal;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.net.SocketAddress;
 
+import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 public class NetSocketWrapper implements MqttSocket {
+    private final static Logger logger= LoggerFactory.getLogger(MqttSocket.class);
+
     private NetSocketInternal netSocketInternal;
     private ChannelHandlerContext ctx;
     private MqttSessionOption sessionOption;
@@ -39,8 +44,13 @@ public class NetSocketWrapper implements MqttSocket {
            }
         });
         this.netSocketInternal.exceptionHandler(t->{
-            if (!(t instanceof IOException))
-                t.printStackTrace();
+            if (!(t instanceof IOException)) {
+                if (logger.isDebugEnabled()){
+                    logger.debug("",t);
+                }else{
+                    logger.info("",t.getMessage());
+                }
+            }
         });
         this.netSocketInternal.closeHandler(v->{
             closed=true;

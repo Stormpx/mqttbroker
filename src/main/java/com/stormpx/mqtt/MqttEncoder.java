@@ -125,8 +125,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(ControlPacketType.CONNECT,packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
 
@@ -145,8 +145,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
             if (packet.getWillProperties()!=null) {
                 //will properties
                 willProperties = new PropertiesEncoder(ControlPacketType.CONNECT,packet.getWillProperties());
-                payloadLength+= MqttCodecUtil.encodeVariableLength(willProperties.getLength()).length;
-                payloadLength+=willProperties.getLength();
+                payloadLength+= MqttCodecUtil.encodeVariableLength(willProperties.getTotalLength()).length;
+                payloadLength+=willProperties.getTotalLength();
             }
             //will topic
             payloadLength+=2;
@@ -215,8 +215,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(ControlPacketType.CONNACK,packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         long maxPacketSize=mqttSessionOption.getEndPointMaximumPacketSize();
@@ -267,8 +267,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(ControlPacketType.PUBLISH,packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         payloadLength+=packet.getPayload().readableBytes();
@@ -304,8 +304,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(packet.fixedHeader().getPacketType(),packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         long maxPacketSize=mqttSessionOption.getEndPointMaximumPacketSize();
@@ -340,8 +340,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(packet.fixedHeader().getPacketType(),packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         List<MqttSubscription> subscriptions = packet.getSubscriptions();
@@ -391,8 +391,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(packet.fixedHeader().getPacketType(),packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         List<ReasonCode> reasonCodes = packet.getReasonCodes();
@@ -431,8 +431,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(packet.fixedHeader().getPacketType(),packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         List<String> subscriptions = packet.getSubscriptions();
@@ -477,8 +477,8 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         PropertiesEncoder propertiesEncoder =null;
         if (packet.getProperties()!=null){
             propertiesEncoder =new PropertiesEncoder(packet.fixedHeader().getPacketType(),packet.getProperties());
-            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()).length;
-            variableHeaderLength+= propertiesEncoder.getLength();
+            variableHeaderLength+= MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()).length;
+            variableHeaderLength+= propertiesEncoder.getTotalLength();
         }
 
         List<ReasonCode> reasonCodes = packet.getReasonCodes();
@@ -511,14 +511,19 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         buf.writeBytes(strBytes);
     }
 
-    private void writeFixedHeader(ByteBuf buf,byte firstBit,byte[] remainingLength){
-        buf.writeByte(firstBit);
+    private void writeFixedHeader(ByteBuf buf,byte firstByte,byte[] remainingLength){
+        buf.writeByte(firstByte);
         buf.writeBytes(remainingLength);
     }
 
+    /**
+     * writePacketProperties
+     * @param buf
+     * @param propertiesEncoder
+     */
     private void writeProperties(ByteBuf buf, PropertiesEncoder propertiesEncoder){
         if (propertiesEncoder !=null){
-            buf.writeBytes( MqttCodecUtil.encodeVariableLength(propertiesEncoder.getLength()));
+            buf.writeBytes( MqttCodecUtil.encodeVariableLength(propertiesEncoder.getTotalLength()));
             propertiesEncoder.encode(buf);
         }
     }
@@ -541,9 +546,9 @@ public class MqttEncoder extends MessageToMessageEncoder<MqttPacket> {
         if (propertiesEncoder ==null)return variableHeaderLength;
         if (variableHeaderLength>maxPacketSize){
             for (MqttProperties optionalProperties : propertiesEncoder.getOptionalProperties()) {
-                variableHeaderLength-= propertiesEncoder.getLength();
+                variableHeaderLength-= propertiesEncoder.getTotalLength();
                 propertiesEncoder.del(optionalProperties);
-                variableHeaderLength+= propertiesEncoder.getLength();
+                variableHeaderLength+= propertiesEncoder.getTotalLength();
                 if (variableHeaderLength<=maxPacketSize){
                     break;
                 }

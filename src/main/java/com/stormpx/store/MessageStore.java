@@ -1,5 +1,6 @@
 package com.stormpx.store;
 
+import com.stormpx.dispatcher.DispatcherMessage;
 import io.vertx.core.Future;
 
 import java.util.Map;
@@ -8,13 +9,15 @@ public interface MessageStore {
 
     Future<Map<String,String>> retainMap();
 
-    Future<MessageObj> get(String id);
+    Future<DispatcherMessage> get(String id);
 
-    void set(String id, MessageObj messageObj);
+    void save(String id, DispatcherMessage message);
 
-    void del(String id);
+    Future<Void> del(String id);
 
     Future<String> putRetain(String topic,String id);
 
-    Future<Integer> addAndGetRefCnt(String id,int d);
+    Future<Integer> getRef(String id);
+
+    void saveRef(String id,int d);
 }

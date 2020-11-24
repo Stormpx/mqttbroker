@@ -1,51 +1,42 @@
 package com.stormpx.cluster.mqtt;
 
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.eventbus.MessageCodec;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 public class RetainMatchResult {
-    public final static RetainMatchResultCodec CODEC=new RetainMatchResultCodec();
 
-    private Map<String, Set<String>> matchMap;
+    private Map<String, MatchMessageIndex> matchMap=new HashMap<>();
 
-    public Map<String, Set<String>> getMatchMap() {
+
+    public void addMatch(String topic,String mid,Set<String> nodeSet){
+        matchMap.put(topic,new MatchMessageIndex(mid,nodeSet));
+    }
+
+
+    public Map<String, MatchMessageIndex> getMatchMap() {
         return matchMap;
     }
 
-    public RetainMatchResult setMatchMap(Map<String, Set<String>> matchMap) {
-        this.matchMap = matchMap;
-        return this;
-    }
-
-    private static class RetainMatchResultCodec implements MessageCodec<RetainMatchResult, RetainMatchResult> {
 
 
-        @Override
-        public void encodeToWire(Buffer buffer, RetainMatchResult retainMatchResult) {
+    public class MatchMessageIndex {
 
+        private String id;
+        private Set<String> nodeIds;
+
+        public MatchMessageIndex(String id, Set<String> nodeIds) {
+            this.id = id;
+            this.nodeIds = nodeIds;
         }
 
-        @Override
-        public RetainMatchResult decodeFromWire(int pos, Buffer buffer) {
-            return null;
+        public String getId() {
+            return id;
         }
 
-        @Override
-        public RetainMatchResult transform(RetainMatchResult retainMatchResult) {
-            return retainMatchResult;
-        }
-
-        @Override
-        public String name() {
-            return "RetainMatchResult";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
+        public Set<String> getNodeIds() {
+            return nodeIds;
         }
     }
 }

@@ -9,7 +9,6 @@ import java.util.List;
 
 public class MqttBrokerMessage {
 
-    private String id;
     private Integer packetId;
     private String topic;
     private MqttQoS qos ;
@@ -22,15 +21,6 @@ public class MqttBrokerMessage {
     private Long messageExpiryInterval;
 
 
-
-    public String getId() {
-        return id;
-    }
-
-    public MqttBrokerMessage setId(String id) {
-        this.id = id;
-        return this;
-    }
 
     public Integer getPacketId() {
         return packetId;

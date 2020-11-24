@@ -19,7 +19,7 @@ public interface NetCluster {
 
     NetCluster appendEntriesRequestHandler(Handler<AppendEntriesRequest> handler);
 
-    NetCluster requestHandler(Handler<ClientRequest> handler);
+    NetCluster requestHandler(Handler<ClientExtendRequest> handler);
 
     NetCluster readIndexRequestHandler(Handler<ReadIndexRequest> handler);
 

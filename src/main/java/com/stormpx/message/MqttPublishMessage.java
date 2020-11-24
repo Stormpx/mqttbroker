@@ -1,17 +1,11 @@
 package com.stormpx.message;
 
-import com.stormpx.kit.J;
-import com.stormpx.kit.StringPair;
 import com.stormpx.mqtt.MqttProperties;
-import com.stormpx.mqtt.MqttProperty;
-import io.netty.handler.codec.base64.Base64;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collector;
 
@@ -79,7 +73,7 @@ public class MqttPublishMessage {
             JsonArray array = unalteredProperties.getUnalteredProperties()
                     .stream()
                     .map(MqttProperties::toJson)
-                    .collect(J.toJsonArray());
+                    .collect(Collector.of(JsonArray::new, JsonArray::add, JsonArray::addAll, Collector.Characteristics.IDENTITY_FINISH));
 
             jsonObject.put("properties", array);
         }

@@ -29,6 +29,7 @@ public class HttpAuthenticator implements Authenticator {
     private String appKey;
     private String authenticationUrl;
     private String authorizationUrl;
+    private String userAgent;
     private WebClient webClient;
     @Override
     public String name() {
@@ -53,7 +54,8 @@ public class HttpAuthenticator implements Authenticator {
         }
         this.authenticationUrl=authentication_url;
         this.authorizationUrl=authorization_url;
-        this.webClient=WebClient.create(vertx,new WebClientOptions().setTryUseCompression(true));
+        this.userAgent=config.getString("user_agent","mqttUa");
+        this.webClient=WebClient.create(vertx,new WebClientOptions().setTryUseCompression(true).setUserAgentEnabled(true).setUserAgent(this.userAgent));
         return Future.succeededFuture();
     }
 

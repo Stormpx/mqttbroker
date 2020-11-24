@@ -66,7 +66,6 @@ public class MqttCluster {
         }
         this.deque=new LinkedList<>();
         this.readIndexMap=new HashMap<>();
-        vertx.eventBus().registerDefaultCodec(LogEntry.class,LogEntry.CODEC);
         return clusterClient.init(this)
                 .compose(v->stateService.init(this))
                 .compose(v->loadClusterState(nodeId))
@@ -223,7 +222,7 @@ public class MqttCluster {
 
     }
 
-    private void handleRequest(ClientRequest request){
+    private void handleRequest(ClientExtendRequest request){
         stateService.handle(request);
     }
 

@@ -67,13 +67,18 @@ public abstract class AbstractMqttContext implements MqttContext {
         this.writeQueue=new LinkedList<>();
         this.inFlightMap=new HashMap<>();
 
+        init(connectPacket);
+
+        mqttSocket.pause();
+    }
+
+    private void init(MqttConnectPacket connectPacket){
         mqttSocket.closeHandler(v->{
             close=true;
             if (closeHandler!=null){
                 closeHandler.handle(v);
             }
         });
-
 
         String authMethod = null;
         Buffer authData = null;
@@ -120,7 +125,6 @@ public abstract class AbstractMqttContext implements MqttContext {
 
         this.mqttSession=new MqttSessionImpl(mqttSessionOption,connectPacket.getClientIdentifier(),will,auth);
         this.id=UUID.randomUUID().toString();
-        mqttSocket.pause();
     }
 
     void handle(MqttPacket packet) {

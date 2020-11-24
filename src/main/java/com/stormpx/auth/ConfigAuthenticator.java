@@ -12,6 +12,7 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -110,7 +111,8 @@ public class ConfigAuthenticator implements Authenticator{
     private String md5(byte[] bytes){
         try {
             MessageDigest md5 = MessageDigest.getInstance("MD5");
-            return new String(md5.digest(bytes),StandardCharsets.UTF_8);
+            md5.update(bytes);
+            return String.format("%032x", new BigInteger(1, md5.digest()));
         } catch (NoSuchAlgorithmException e) {
         }
         return null;

@@ -55,7 +55,7 @@ public class AuthTest {
         users.add(
                 new JsonObject()
                         .put("username","client1")
-                        .put("password","password")
+                        .put("password","098f6bcd4621d373cade4e832627b4f6")
                         .put("ip","127.0.0.1")
                         .put("user_property",new JsonObject().put("key","value"))
         );
@@ -76,6 +76,8 @@ public class AuthTest {
                 );
 
         MqttBroker.start(vertx,new JsonObject().put("auth","config")
+                .put("save_dir","/authdata")
+                .put("password_hash","md5")
                 .put("users",users)
                 .put("acl",acl)
                 .put(TCP,new JsonObject().put("port",11883)))
@@ -88,7 +90,7 @@ public class AuthTest {
                             .useMqttVersion5()
                             .willPublish(Mqtt5Publish.builder().topic("/will/test").qos(MqttQos.EXACTLY_ONCE).payload("qwewq".getBytes(StandardCharsets.UTF_8)).asWill().build())
                             .build().toBlocking();
-                    Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("password".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
+                    Mqtt5ConnAck mqtt5ConnAck = client1.connectWith().simpleAuth().username("client1").password("test".getBytes(StandardCharsets.UTF_8)).applySimpleAuth().send();
                     Assertions.assertEquals(mqtt5ConnAck.getReasonCode(), Mqtt5ConnAckReasonCode.SUCCESS);
                     Mqtt5UserProperties userProperties =
                             mqtt5ConnAck.getUserProperties();
@@ -132,6 +134,7 @@ public class AuthTest {
                     } catch (Mqtt5ConnAckException e) {
 
                         Assertions.assertEquals(e.getMqttMessage().getReasonCode(), Mqtt5ConnAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
+                        context.completeNow();
                     }
 
                 } catch (Exception e) {

@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public class LogEntry {
-    public final static LogEntryCodec CODEC=new LogEntryCodec();
 
     private int term;
     private int index;
@@ -153,32 +152,4 @@ public class LogEntry {
         return "LogEntry{" + "term=" + term + ", index=" + index + ", requestId=" + proposalId + ", nodeId='" + nodeId + '\'' + ", payload=" + payload + ", length=" + length + '}';
     }
 
-    private static class LogEntryCodec implements MessageCodec<LogEntry,LogEntry> {
-
-
-        @Override
-        public void encodeToWire(Buffer buffer, LogEntry logEntry) {
-            buffer.appendBuffer(logEntry.encode());
-        }
-
-        @Override
-        public LogEntry decodeFromWire(int pos, Buffer buffer) {
-            return decode(pos,buffer);
-        }
-
-        @Override
-        public LogEntry transform(LogEntry logEntry) {
-            return logEntry;
-        }
-
-        @Override
-        public String name() {
-            return "logEntry";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
-        }
-    }
 }

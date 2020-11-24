@@ -13,6 +13,8 @@ import io.vertx.core.TimeoutStream;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.WebSocketBase;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.SocketAddress;
 
 import java.io.IOException;
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class WebSocketWrapper implements MqttSocket {
+    private final static Logger logger= LoggerFactory.getLogger(MqttSocket.class);
     private Vertx vertx;
     private WebSocketBase webSocketBase;
     private MqttSessionOption sessionOption;
@@ -45,9 +48,12 @@ public class WebSocketWrapper implements MqttSocket {
         this.pending=new ArrayList<>();
         this.timeoutStream=vertx.periodicStream(5000).handler(this::handleTimeout);
         webSocketBase.exceptionHandler(t->{
-            t.printStackTrace();
             if (!(t instanceof IOException)) {
-                t.printStackTrace();
+                if (logger.isDebugEnabled()){
+                    logger.debug("",t);
+                }else{
+                    logger.info("",t.getMessage());
+                }
             }
         });
         webSocketBase.frameHandler(frame->{

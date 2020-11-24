@@ -231,7 +231,7 @@ public class MqttDecoder extends ByteToMessageDecoder {
                     if (mqttProperty == SESSION_EXPIRY_INTERVAL || mqttProperty == AUTHENTICATION_METHOD || mqttProperty == AUTHENTICATION_DATA
                             || mqttProperty == REQUEST_PROBLEM_INFORMATION || mqttProperty == REQUEST_RESPONSE_INFORMATION
                             || mqttProperty == RECEIVE_MAXIMUM || mqttProperty == TOPIC_ALIAS_MAXIMUM || mqttProperty == MAXIMUM_PACKET_SIZE) {
-                        throw new ProtocolErrorException(mqttProperty + "is not valid for will");
+                        throw new ProtocolErrorException(mqttProperty + "invalid for will");
                     }
                 }
             }

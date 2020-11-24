@@ -5,6 +5,9 @@ import com.stormpx.cluster.MqttCluster;
 import com.stormpx.cluster.message.*;
 import com.stormpx.cluster.net.NetCluster;
 import com.stormpx.cluster.net.Response;
+import com.stormpx.dispatcher.ClientSession;
+import com.stormpx.dispatcher.DispatcherMessage;
+import com.stormpx.kit.Codec;
 import com.stormpx.store.*;
 import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
@@ -114,8 +117,8 @@ public class ClusterClient {
     }
 
 
-    public Future<MessageObj> requestMessage(int requestId,Set<String> nodeIds, String id){
-        Promise<MessageObj> promise=Promise.promise();
+    public Future<DispatcherMessage> requestMessage(int requestId,Set<String> nodeIds, String id){
+        Promise<DispatcherMessage> promise=Promise.promise();
         MultipleRequest multipleRequest = new MultipleRequest("/message", requestId,nodeIds,new JsonObject().put("id", id));
         multipleRequest.request()
                 .setHandler(ar->{
@@ -123,10 +126,8 @@ public class ClusterClient {
                         if (ar.succeeded()&&ar.result().isSuccess()){
                             Response response = ar.result();
                             Buffer payload = response.getPayload();
-                            MessageObj messageObj =
-                                    new ObjCodec().decodeMessageObj(payload);
-
-                            promise.complete(messageObj);
+                            DispatcherMessage message=Codec.decodeDispatcherMessage(payload);
+                            promise.complete(message);
                         }else{
                             promise.tryFail(ar.cause());
                         }
@@ -140,20 +141,20 @@ public class ClusterClient {
     }
 
 
-    public Future<SessionObj> requestSession(int requestId,Set<String> set, String clientId){
-        Promise<SessionObj> promise=Promise.promise();
+    public Future<ClientSession> requestSession(int requestId,Set<String> set, String clientId){
+        Promise<ClientSession> promise=Promise.promise();
         MultipleRequest multipleRequest = new MultipleRequest("/session", requestId,set,new JsonObject().put("clientId", clientId));
         multipleRequest.request()
                 .setHandler(ar->{
-                    SessionObj sessionObj = null;
+                    ClientSession clientSession = null;
                     if (ar.succeeded()&&ar.result().isSuccess()){
                         Response response = ar.result();
                         // save session
                         Buffer payload = response.getPayload();
-                        sessionObj = new ObjCodec().decodeSessionObj(payload);
+                        clientSession=Codec.decodeClientSession(payload);
 
                     }
-                    promise.tryComplete(sessionObj);
+                    promise.tryComplete(clientSession);
                 });
         return promise.future();
     }

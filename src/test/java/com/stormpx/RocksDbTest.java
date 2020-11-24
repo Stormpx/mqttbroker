@@ -15,14 +15,14 @@ public class RocksDbTest {
 
 
         long l = System.currentTimeMillis();
-        Db.initialize("D://foo");
+        Db.initialize("D:\\JavaProject\\mqttbroker\\mqtt3");
         RocksDB rocksDB = Db.db();
 
         RocksIterator rocksIterator = rocksDB.newIterator(Db.messageColumnFamily());
         rocksIterator.seekToFirst();
 //        rocksIterator.seek("refcnt".getBytes());
         while (rocksIterator.isValid()){
-            System.out.println(new String(rocksIterator.key())+"------"+ Buffer.buffer(rocksIterator.value()).getInt(0));
+            System.out.println(new String(rocksIterator.key()));
 
             rocksIterator.next();
         }

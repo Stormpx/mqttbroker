@@ -13,7 +13,7 @@ public class MessageLink {
     private MqttQoS qos;
     private List<Integer> subscriptionId;
 
-     MessageLink(String id, String clientId, int packetId, boolean retain, MqttQoS qos, List<Integer> subscriptionId) {
+     MessageLink(String id, String clientId, Integer packetId, boolean retain, MqttQoS qos, List<Integer> subscriptionId) {
         this.id = id;
         this.clientId = clientId;
         this.packetId = packetId;
@@ -23,7 +23,15 @@ public class MessageLink {
     }
 
     public static MessageLink create(String id, String clientId, Integer packetId, boolean retain, MqttQoS qos, List<Integer> subscriptionId){
-        return new MessageLink(id, clientId, packetId==null?0:packetId, retain, qos, subscriptionId);
+        return new MessageLink(id, clientId, packetId, retain, qos, subscriptionId);
+    }
+
+    public boolean isOffLink(){
+         return packetId==null;
+    }
+
+    public boolean isDiscard(){
+         return id==null;
     }
 
     public boolean isRetain() {

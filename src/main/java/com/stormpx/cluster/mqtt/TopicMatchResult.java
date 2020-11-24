@@ -1,24 +1,21 @@
 package com.stormpx.cluster.mqtt;
 
 import com.stormpx.kit.TopicFilter;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.eventbus.MessageCodec;
 
 import java.util.Collection;
 import java.util.Set;
 
 public class TopicMatchResult {
-    public final static TopicMatchResultCodec CODEC=new TopicMatchResultCodec();
 
-    private Collection<TopicFilter.SubscribeInfo> subscribeInfos;
+    private Collection<TopicFilter.MatchResult> matchResults;
     private Set<String> allNodeIds;
 
-    public Collection<TopicFilter.SubscribeInfo> getSubscribeInfos() {
-        return subscribeInfos;
+    public Collection<TopicFilter.MatchResult> getMatchResults() {
+        return matchResults;
     }
 
-    public TopicMatchResult setSubscribeInfos(Collection<TopicFilter.SubscribeInfo> subscribeInfos) {
-        this.subscribeInfos = subscribeInfos;
+    public TopicMatchResult setMatchResults(Collection<TopicFilter.MatchResult> matchResults) {
+        this.matchResults = matchResults;
         return this;
     }
 
@@ -29,34 +26,5 @@ public class TopicMatchResult {
     public TopicMatchResult setAllNodeIds(Set<String> allNodeIds) {
         this.allNodeIds = allNodeIds;
         return this;
-    }
-
-    private static class TopicMatchResultCodec implements MessageCodec<TopicMatchResult,TopicMatchResult> {
-
-
-        @Override
-        public void encodeToWire(Buffer buffer, TopicMatchResult topicMatchResult) {
-
-        }
-
-        @Override
-        public TopicMatchResult decodeFromWire(int pos, Buffer buffer) {
-            return null;
-        }
-
-        @Override
-        public TopicMatchResult transform(TopicMatchResult topicMatchResult) {
-            return topicMatchResult;
-        }
-
-        @Override
-        public String name() {
-            return "topicMatchResult";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
-        }
     }
 }

@@ -12,7 +12,7 @@ import java.util.Objects;
 public class MqttConnectPacket implements MqttPacket {
     private FixedHeader fixedHeader;
     private MqttVersion version;
-    private String ClientIdentifier;
+    private String clientIdentifier;
     private boolean cleanStart;
     private int keepAlive;
     private List<MqttProperties> properties;
@@ -28,7 +28,7 @@ public class MqttConnectPacket implements MqttPacket {
     public MqttConnectPacket(FixedHeader fixedHeader, MqttVersion version, String clientIdentifier, boolean cleanStart, int keepAlive, List<MqttProperties> properties, boolean willFlag, boolean willRetain, List<MqttProperties> willProperties, MqttQoS willQos, String willTopic, ByteBuf willPayload, String userName, ByteBuf password) {
         this.fixedHeader = fixedHeader;
         this.version = version;
-        ClientIdentifier = clientIdentifier;
+        this.clientIdentifier = clientIdentifier;
         this.cleanStart = cleanStart;
         this.keepAlive = keepAlive;
         this.properties = properties;
@@ -52,7 +52,7 @@ public class MqttConnectPacket implements MqttPacket {
     }
 
     public String getClientIdentifier() {
-        return ClientIdentifier;
+        return clientIdentifier;
     }
 
     public boolean isCleanStart() {
@@ -104,16 +104,16 @@ public class MqttConnectPacket implements MqttPacket {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MqttConnectPacket that = (MqttConnectPacket) o;
-        return cleanStart == that.cleanStart && keepAlive == that.keepAlive && willFlag == that.willFlag && willRetain == that.willRetain && version == that.version && Objects.equals(ClientIdentifier, that.ClientIdentifier) && Objects.equals(properties, that.properties) && Objects.equals(willProperties, that.willProperties) && willQos == that.willQos && Objects.equals(willTopic, that.willTopic) && Objects.equals(willPayload, that.willPayload) && Objects.equals(userName, that.userName) && Objects.equals(password, that.password);
+        return cleanStart == that.cleanStart && keepAlive == that.keepAlive && willFlag == that.willFlag && willRetain == that.willRetain && version == that.version && Objects.equals(clientIdentifier, that.clientIdentifier) && Objects.equals(properties, that.properties) && Objects.equals(willProperties, that.willProperties) && willQos == that.willQos && Objects.equals(willTopic, that.willTopic) && Objects.equals(willPayload, that.willPayload) && Objects.equals(userName, that.userName) && Objects.equals(password, that.password);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(version, ClientIdentifier, cleanStart, keepAlive, properties, willFlag, willRetain, willProperties, willQos, willTopic, willPayload, userName, password);
+        return Objects.hash(version, clientIdentifier, cleanStart, keepAlive, properties, willFlag, willRetain, willProperties, willQos, willTopic, willPayload, userName, password);
     }
 
     @Override
     public String toString() {
-        return "MqttConnectPacket{" + "fixedHeader=" + fixedHeader + ", version=" + version + ", ClientIdentifier='" + ClientIdentifier + '\'' + ", cleanStart=" + cleanStart + ", keepAlive=" + keepAlive + ", properties=" + properties + ", willFlag=" + willFlag + ", willRetain=" + willRetain + ", willProperties=" + willProperties + ", willQos=" + willQos + ", willTopic='" + willTopic + '\'' + ", willPayload=" + willPayload + ", userName='" + userName + '\'' + ", password=" + password + '}';
+        return "MqttConnectPacket{" + "fixedHeader=" + fixedHeader + ", version=" + version + ", ClientIdentifier='" + clientIdentifier + '\'' + ", cleanStart=" + cleanStart + ", keepAlive=" + keepAlive + ", properties=" + properties + ", willFlag=" + willFlag + ", willRetain=" + willRetain + ", willProperties=" + willProperties + ", willQos=" + willQos + ", willTopic='" + willTopic + '\'' + ", willPayload=" + willPayload + ", userName='" + userName + '\'' + ", password=" + password + '}';
     }
 }

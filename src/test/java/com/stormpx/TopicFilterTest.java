@@ -15,17 +15,6 @@ class TopicFilterTest {
 
 
 
-    @Test
-    void subscribe() {
-        TopicFilter topicFilter = new TopicFilter();
-        Assertions.assertFalse(topicFilter.subscribe("","a0", MqttQoS.AT_MOST_ONCE,false,false,0));
-        Assertions.assertTrue(topicFilter.subscribe("/","a0", MqttQoS.EXACTLY_ONCE,false,false,0));
-        Assertions.assertTrue(topicFilter.subscribe("#","a1", MqttQoS.AT_LEAST_ONCE,false,false,0));
-        Assertions.assertTrue(topicFilter.subscribe("test","a1", MqttQoS.AT_MOST_ONCE,false,false,0));
-        Assertions.assertTrue(topicFilter.subscribe("/test","a2", MqttQoS.AT_MOST_ONCE,false,false,0));
-        Assertions.assertTrue(topicFilter.subscribe("$SYS","a3", MqttQoS.AT_MOST_ONCE,false,false,0));
-
-    }
 
 
 

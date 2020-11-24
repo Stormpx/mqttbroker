@@ -1,13 +1,10 @@
 package com.stormpx.cluster.mqtt;
 
-import com.stormpx.store.SessionObj;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.eventbus.MessageCodec;
+import com.stormpx.dispatcher.ClientSession;
 
 public class SessionResult {
-    public final static SessionResultCodec CODEC=new SessionResultCodec();
     private boolean isLocal;
-    private SessionObj sessionObj;
+    private ClientSession session;
 
     public boolean isLocal() {
         return isLocal;
@@ -18,41 +15,12 @@ public class SessionResult {
         return this;
     }
 
-    public SessionObj getSessionObj() {
-        return sessionObj;
+    public ClientSession getSession() {
+        return session;
     }
 
-    public SessionResult setSessionObj(SessionObj sessionObj) {
-        this.sessionObj = sessionObj;
+    public SessionResult setSession(ClientSession session) {
+        this.session = session;
         return this;
-    }
-
-    private static class SessionResultCodec implements MessageCodec<SessionResult,SessionResult> {
-
-
-        @Override
-        public void encodeToWire(Buffer buffer, SessionResult sessionResult) {
-
-        }
-
-        @Override
-        public SessionResult decodeFromWire(int pos, Buffer buffer) {
-            return null;
-        }
-
-        @Override
-        public SessionResult transform(SessionResult sessionResult) {
-            return sessionResult;
-        }
-
-        @Override
-        public String name() {
-            return "SessionResult";
-        }
-
-        @Override
-        public byte systemCodecID() {
-            return -1;
-        }
     }
 }
