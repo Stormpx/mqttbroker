@@ -5,6 +5,7 @@ import com.stormpx.dispatcher.command.UnSubscriptionsCommand;
 import com.stormpx.kit.TopicFilter;
 import com.stormpx.mqtt.MqttSubscription;
 import io.netty.handler.codec.mqtt.MqttQoS;
+import io.vertx.core.eventbus.MessageProducer;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -49,6 +50,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
         //match retain message and callback
         if (command.getAddress()!=null&&!command.getMatchTopics().isEmpty()) {
+//            MessageProducer<MessageContext> messageProducer = dispatcherContext.getVertx().eventBus().sender(command.getAddress());
             messageService.matchRetainMessage(command.getMatchTopics(), msg -> {
                 if (msg != null) dispatcherContext.getVertx().eventBus().send(command.getAddress(), new MessageContext(msg.setRetain(true)));
             });

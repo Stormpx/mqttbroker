@@ -103,6 +103,7 @@ public class MessageService {
                 .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
                 .onSuccess(v-> new RetainMap(this.retainMap)
                         .match(topics)
+
                         .forEach(sp->matchLocalMessage(sp.getKey(),sp.getValue(),handler)));
     }
 
