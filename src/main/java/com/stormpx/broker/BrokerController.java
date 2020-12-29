@@ -141,6 +141,7 @@ public class BrokerController {
             TopicFilter.Entry maxQosEntry=reducer.getMaxQosEntry();
             if (maxQosEntry!=null) {
                 if (!maxQosEntry.isNoLocal() || !clientController.getMqttContext().session().clientIdentifier().equals(clientId)) {
+                    logger.info("publishing to client:{} ",clientController.getMqttContext().session().clientIdentifier());
                     clientController.send(
                             message
                                     .copy()

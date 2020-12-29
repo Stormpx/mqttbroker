@@ -193,11 +193,9 @@ public class MessageService {
                     messageStore.putRetain(topic, id)
                             .onFailure(t->logger.error("save retain topic:{} id:{} failed",t,topic,id));
                     if (oid!=null&&!oid.equals(id)){
-                        System.out.println("111111111111111111111111111111111111111111aaaaaaa");
                         modifyRefCnt(oid,-1);
                     }
                     if (id!=null){
-                        System.out.println("aaaaaggggggggggggggggggggggggggggggggggggggggggggg");
                         modifyRefCnt(id,1);
                     }
                 });

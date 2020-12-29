@@ -42,34 +42,32 @@ public class ConfigAuthenticator implements Authenticator{
         JsonObject emptyJsonObject = new JsonObject();
         JsonArray user = config.getJsonArray("users");
         JsonArray acl = config.getJsonArray("acl");
-        J.toJsonStream(user)
-                .forEach(json->{
-                    String username = json.getString("username");
-                    String password = json.getString("password");
-                    String ip = json.getString("ip");
-                    JsonObject userProperty = json.getJsonObject("user_property",emptyJsonObject);
+        if (user!=null) {
+            J.toJsonStream(user).forEach(json -> {
+                String username = json.getString("username");
+                String password = json.getString("password");
+                String ip = json.getString("ip");
+                JsonObject userProperty = json.getJsonObject("user_property", emptyJsonObject);
+                List<StringPair> pairs = userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList());
+                User u = new User(username, password, ip, pairs);
+                userMap.put(u.userName, u);
+            });
+        }
+        if (acl!=null) {
+            J.toJsonStream(acl).forEach(json -> {
+                String clientId = json.getString("client");
+                JsonArray permission = json.getJsonArray("permission");
+                Permissions permissions = new Permissions();
+                J.toJsonStream(permission).forEach(j -> {
+                    String topic = j.getString("topic");
+                    if (topic == null) return;
+                    JsonObject userProperty = j.getJsonObject("user_property", emptyJsonObject);
                     List<StringPair> pairs = userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList());
-                    User u = new User(username, password, ip,pairs);
-                    userMap.put(u.userName,u);
+                    permissions.permissionMap.put(topic, Values3.values(j.getInteger("max_qos", 2), j.getString("action"), pairs));
                 });
-
-        J.toJsonStream(acl)
-                .forEach(json->{
-                    String clientId = json.getString("client");
-                    JsonArray permission = json.getJsonArray("permission");
-                    Permissions permissions = new Permissions();
-                    J.toJsonStream(permission)
-                            .forEach(j->{
-                                String topic = j.getString("topic");
-                                if (topic==null)
-                                    return;
-                                JsonObject userProperty = j.getJsonObject("user_property",emptyJsonObject);
-                                List<StringPair> pairs = userProperty.stream().map(e -> new StringPair(e.getKey(), e.getValue().toString())).collect(Collectors.toList());
-                                permissions.permissionMap.put(topic,Values3.values(j.getInteger("max_qos",2),j.getString("action"),pairs));
-                            });
-                    permissionMap.put(clientId,permissions);
-                });
-
+                permissionMap.put(clientId, permissions);
+            });
+        }
         return Future.succeededFuture();
     }
 
@@ -166,6 +164,8 @@ public class ConfigAuthenticator implements Authenticator{
 
     @Override
     public Future<AuthResult<List<ReasonCode>>> authorizeSub(String clientId, List<MqttSubscription> mqttSubscriptions,List<StringPair> userProperty) {
+        if (permissionMap.isEmpty())
+            return Future.succeededFuture(AuthResult.create(mqttSubscriptions.stream().map(MqttSubscription::getQos).map(qos->ReasonCode.valueOf((byte) qos.value())).collect(Collectors.toList())));
 
         Permissions permissions = permissionMap.get(clientId);
         if (permissions==null){
