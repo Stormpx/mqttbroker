@@ -376,7 +376,7 @@ public class ClientController {
                                 .setExpiryTimeStamp(message.getMessageExpiryInterval(),brokerController.getMqttConfig().getLong(MQTT_MAX_MESSAGE_EXPIRY_INTERVAL))
                                 .setClientId(clientId);
 
-                        logger.info("client:{} publish message on topic:{} id:{} qos:{} ",clientId,message.getTopic(),messageContext.getId(),message.getQos());
+                        logger.debug("client:{} publish message on topic:{} id:{} qos:{} retain:{}",clientId,message.getTopic(),messageContext.getId(),message.getQos(),message.isRetain());
 
                         if (message.getQos() == MqttQoS.EXACTLY_ONCE) {
                             session.packetId(PacketIdActionCommand.addPacketId(clientId, message.getPacketId()))
@@ -430,7 +430,7 @@ public class ClientController {
                 .setDisconnect(mqttContext.isDisConnect())
                 .setTakenOver(mqttContext.isTakenOver())
                 .setWill(will.isWillFlag())
-                .setWillDelayInterval(will.getWillDelayInterval());
+                ;
         if (will.isWillFlag()){
             closeSessionCommand
                     .setWillDelayInterval(will.getWillDelayInterval())

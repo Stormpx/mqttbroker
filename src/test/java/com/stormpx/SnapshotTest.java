@@ -17,7 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 @ExtendWith(VertxExtension.class)
 public class SnapshotTest {
@@ -37,7 +41,7 @@ public class SnapshotTest {
             .appendBuffer(chunk5);
 
     @Test
-    public void test(Vertx vertx, VertxTestContext context){
+    public void test(Vertx vertx, VertxTestContext context) throws IOException, InterruptedException {
         String dir = System.getProperty("user.dir");
         FileUtil.create(new File(dir+"/snapshot"));
         Snapshot snapshot = new Snapshot(vertx, "node1", 0, 0, dir + "/snapshot");
@@ -82,6 +86,10 @@ public class SnapshotTest {
                                 }
                             });
                 }));
+
+        boolean b = context.awaitCompletion(30, TimeUnit.SECONDS);
+
+        System.out.println("done");
 
     }
 
@@ -160,7 +168,7 @@ public class SnapshotTest {
 
 
     @Test
-    public void competitionTest(Vertx vertx,VertxTestContext context){
+    public void competitionTest(Vertx vertx,VertxTestContext context) throws InterruptedException {
         String dir = System.getProperty("user.dir");
         FileUtil.create(new File(dir+"/snapshot"));
         Snapshot snapshot = new Snapshot(vertx, "node1", 0, 2, dir + "/snapshot");

@@ -79,6 +79,7 @@ public class ClusterMessageService extends MessageService {
     @Override
     public void matchRetainMessage(List<String> topics, Handler<DispatcherMessage> handler) {
         cluster.retainMatch(topics)
+                .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
                 .onSuccess(retainMatchResult->{
                     Map<String, RetainMatchResult.MatchMessageIndex> map = retainMatchResult.getMatchMap();
                     if (map.isEmpty()) {
@@ -87,7 +88,7 @@ public class ClusterMessageService extends MessageService {
 
                     map.forEach((topic, match) ->{
                         if (match.getNodeIds().contains(cluster.getId())){
-                            matchLocalMessage(topic,match.getId(),handler);
+                            sendLocalMessage(topic,match.getId(),handler);
                         }else{
                             cluster.requestMessage(new RequestMessageCommand(match.getId()).setNodeIds(match.getNodeIds()))
                                     .onFailure(t->logger.warn("get message failed msg:{}",t.getMessage()))

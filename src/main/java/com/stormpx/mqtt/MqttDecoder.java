@@ -482,7 +482,7 @@ public class MqttDecoder extends ByteToMessageDecoder {
 
     private String readUtf8String(ByteBuf buf){
         int len = buf.readUnsignedShort();
-        return buf.readSlice(len).toString(CharsetUtil.UTF_8);
+        return buf.readSlice(len).toString(CharsetUtil.UTF_8).trim();
     }
 
     private ByteBuf readBinaryData(ByteBuf buf){

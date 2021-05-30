@@ -89,7 +89,6 @@ public class RocksDBMessageStore extends BlockStore implements MessageStore {
     public Future<String> putRetain(String topic, String id) {
         return writeOps(() -> {
             String key = "retain-" + topic;
-            System.out.println(id);
             byte[] value = rocksDB.get(key.getBytes());
             if (id == null) {
                 //del

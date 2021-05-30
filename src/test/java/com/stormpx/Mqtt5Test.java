@@ -12,6 +12,7 @@ import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5RetainHandling;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscribe;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscription;
+import com.stormpx.kit.FileUtil;
 import com.stormpx.kit.UnSafeJsonObject;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
@@ -19,13 +20,17 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -38,16 +43,19 @@ import static com.stormpx.Constants.TCP;
 @ExtendWith(VertxExtension.class)
 public class Mqtt5Test {
 
+    private static Path path=null;
 
     private static Mqtt5BlockingClient client2;
 
 
     @BeforeAll
-    static void beforeClass(Vertx vertx, VertxTestContext context) {
+    static void beforeClass(Vertx vertx, VertxTestContext context) throws IOException {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
         String userDir=System.getProperty("user.dir");
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",3).put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt5")).setHandler(context.completing());
+        path = Files.createTempDirectory(Path.of(userDir), "");
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("verticle_instance",3).put(TCP,new JsonObject().put("port",11883))
+                .put(SAVE_DIR,path.toString())).setHandler(context.completing());
 
         /*DeploymentOptions mqtt = new DeploymentOptions().setConfig(new JsonObject().put("auth","echo").put(TCP,new JsonObject().put("port",11883)));
         vertx.deployVerticle(new MqttBrokerVerticle(), mqtt,context.succeeding(v->{
@@ -57,6 +65,14 @@ public class Mqtt5Test {
 
         }));*/
 
+    }
+
+    @AfterAll
+    static void afterAll(Vertx vertx, VertxTestContext context) throws IOException {
+        if (path!=null)
+            FileUtil.delete(path);
+
+        context.completeNow();
     }
 
     @Test

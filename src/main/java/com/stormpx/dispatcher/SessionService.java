@@ -216,25 +216,30 @@ public class SessionService {
                 delSession(clientId);
             }
         }
+        logger.info("client connection:{} closed disconnect:{} sessionExpiry:{} will:{} willInterval:{}", clientId,closeSessionCommand.isDisconnect(),
+                closeSessionCommand.getSessionExpiryInterval(),closeSessionCommand.isWill(),closeSessionCommand.getWillDelayInterval());
+
         if (closeSessionCommand.isDisconnect())
             return;
-        logger.debug("client:{} lost", clientId);
+
         if (closeSessionCommand.isWill()){
             long willDelayInterval = Math.min(closeSessionCommand.getWillDelayInterval(),closeSessionCommand.getSessionExpiryInterval());
             if (willDelayInterval<=0){
                 // publish will
-                dispatcherContext.getMessageService().dispatcher(new MessageContext(closeSessionCommand.getWillMessage()));
+                logger.info("publish client:{} will",clientId);
+                dispatcherContext.getMessageService().dispatcher(new MessageContext(closeSessionCommand.getWillMessage().copy()));
             }else if (!closeSessionCommand.isTakenOver()){
 
                 var timeout=dispatcherContext.getVertx().timerStream(willDelayInterval)
                     .handler(id->{
                         willTimerMap.remove(clientId);
                         sessionStore.delWill(clientId);
+                        logger.info("publish client:{} will",clientId);
                         dispatcherContext.getMessageService().dispatcher(new MessageContext(closeSessionCommand.getWillMessage().copy()));
                     });
                 //save will
                 sessionStore.saveWill(clientId,closeSessionCommand.getWillMessage());
-                //stop old timer if have
+                //stop  timer
                 stopWillTimer(clientId);
                 willTimerMap.put(clientId,timeout);
             }

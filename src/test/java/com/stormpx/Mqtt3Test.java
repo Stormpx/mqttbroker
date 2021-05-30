@@ -11,6 +11,7 @@ import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5RetainHandling;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscribe;
 import com.hivemq.client.mqtt.mqtt5.message.subscribe.Mqtt5Subscription;
+import com.stormpx.kit.FileUtil;
 import com.stormpx.kit.UnSafeJsonObject;
 import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
 import io.netty.handler.codec.mqtt.MqttQoS;
@@ -22,12 +23,16 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -37,15 +42,25 @@ import static com.stormpx.Constants.*;
 @ExtendWith(VertxExtension.class)
 public class Mqtt3Test {
 
+    private static Path path=null;
 
     @BeforeAll
-    static void beforeClass(Vertx vertx, VertxTestContext context) {
+    static void beforeClass(Vertx vertx, VertxTestContext context) throws IOException {
         System.setProperty(LoggerFactory.LOGGER_DELEGATE_FACTORY_CLASS_NAME,"io.vertx.core.logging.SLF4JLogDelegateFactory");
         LoggerFactory.initialise();
         String userDir=System.getProperty("user.dir");
-        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883)).put(SAVE_DIR,userDir+"/mqtt3")).setHandler(context.completing());
+        path = Files.createTempDirectory(Path.of(userDir), "");
+        MqttBroker.start(vertx,new JsonObject().put("auth","echo").put("log_level","debug").put(TCP,new JsonObject().put("port",11883))
+                .put(SAVE_DIR,path.toString())).setHandler(context.completing());
 
+    }
 
+    @AfterAll
+    static void afterAll(Vertx vertx, VertxTestContext context) throws IOException {
+        if (path!=null)
+            FileUtil.delete(path);
+
+        context.completeNow();
     }
 
     @Test
@@ -172,19 +187,25 @@ public class Mqtt3Test {
         try {
 
             client2.publishWith().topic("/retain/qos1").qos(MqttQos.AT_LEAST_ONCE).retain(true).payload(new byte[]{1}).send();
+            client2.publishWith().topic("/retain/qos1").qos(MqttQos.AT_LEAST_ONCE).retain(true).payload(new byte[]{1}).send();
+
+            client2.publishWith().topic("/retain/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
 
             client1.subscribeWith()
                     .addSubscription()
                     .topicFilter("/retain/qos1").qos(MqttQos.AT_LEAST_ONCE)
                     .applySubscription()
                     .send();
+
+
+
             Mqtt3Publish publish = publishes.receive();
             Assertions.assertEquals(publish.getTopic().toString(),"/retain/qos1");
             Assertions.assertEquals(publish.getQos(),MqttQos.AT_LEAST_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
-            System.out.println("ffffffffffffffffffff");
 
-            client2.publishWith().topic("/retain/qos2").qos(MqttQos.EXACTLY_ONCE).retain(true).payload(new byte[]{1}).send();
+
+
             client1.subscribeWith()
                     .addSubscription()
                     .topicFilter("/retain/qos2").qos(MqttQos.EXACTLY_ONCE)
@@ -196,7 +217,7 @@ public class Mqtt3Test {
             Assertions.assertEquals(publish.getQos(),MqttQos.EXACTLY_ONCE);
             Assertions.assertEquals(publish.isRetain(),true);
 
-            Thread.sleep(5000);
+//            Thread.sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

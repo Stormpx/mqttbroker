@@ -7,7 +7,6 @@ public class CloseSessionCommand {
     private boolean disconnect;
     private boolean takenOver;
     private long sessionExpiryInterval;
-
     private boolean will;
     private long willDelayInterval;
     private DispatcherMessage willMessage;
@@ -73,5 +72,10 @@ public class CloseSessionCommand {
     public CloseSessionCommand setDisconnect(boolean disconnect) {
         this.disconnect = disconnect;
         return this;
+    }
+
+    @Override
+    public String toString() {
+        return "CloseSessionCommand{" + "clientId='" + clientId + '\'' + ", disconnect=" + disconnect + ", takenOver=" + takenOver + ", sessionExpiryInterval=" + sessionExpiryInterval + ", will=" + will + ", willDelayInterval=" + willDelayInterval + ", willMessage=" + willMessage + '}';
     }
 }

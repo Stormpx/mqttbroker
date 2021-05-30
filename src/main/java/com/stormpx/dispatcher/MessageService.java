@@ -6,7 +6,7 @@ import com.stormpx.kit.TopicFilter;
 import com.stormpx.store.MessageStore;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
-import io.vertx.core.Vertx;
+import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
@@ -100,14 +100,16 @@ public class MessageService {
 
     public void matchRetainMessage(List<String> topics, Handler<DispatcherMessage> handler){
         retainMap()
-                .onFailure(t->logger.error("fetch retainMapWithReadIndex failed",t))
+                .onSuccess(v->logger.debug("retainMap {}",retainMap))
                 .onSuccess(v-> new RetainMap(this.retainMap)
                         .match(topics)
-
-                        .forEach(sp->matchLocalMessage(sp.getKey(),sp.getValue(),handler)));
+                        .forEach(sp-> {
+                            logger.debug("match sp {}",sp);
+                            sendLocalMessage(sp.getKey(),sp.getValue(),handler);
+                        }));
     }
 
-    protected void matchLocalMessage(String topic,String id,Handler<DispatcherMessage> handler){
+    protected void sendLocalMessage(String topic, String id, Handler<DispatcherMessage> handler){
         getLocalMessage(id).onSuccess(dm->{
             if (dm==null||dm.isExpiry()){
                 //del retain
@@ -120,6 +122,7 @@ public class MessageService {
 
     private Map<String,Integer> refMap =new HashMap<>();
     private Map<String,DispatcherMessage> messageMap=new HashMap<>();
+    private Promise<Void> retainMapPromise=Promise.promise();
     private Map<String,String> retainMap;
 
 
@@ -130,7 +133,7 @@ public class MessageService {
                 .map(i->{
                     int count=i==null?0:i;
                     count+=delta;
-                    logger.info("id :{} count:{}",id,count);
+//                    logger.info("id :{} count:{}",id,count);
                     //no one used
                     if (count <= 0){
                         //del message
@@ -179,10 +182,17 @@ public class MessageService {
     }
 
     private Future<Void> retainMap(){
-        if (retainMap==null)
-            return messageStore.retainMap().onSuccess(map->this.retainMap=map).map((Void)null);
-        else
-            return Future.succeededFuture();
+        if (retainMap==null){
+            messageStore.retainMap()
+                    .onSuccess(map->{
+                        if (!retainMapPromise.future().isComplete()) {
+                            this.retainMap = map;
+                            retainMapPromise.complete();
+                        }
+                    });
+        }
+        return retainMapPromise.future();
+
     }
 
     protected void saveRetain(String topic,String id){

@@ -37,7 +37,7 @@ public class Subscribe {
             }
             MqttQoS mqttQoS = MqttQoS.valueOf(reasonCode.byteValue());
             mqttSubscription.setQos(mqttQoS);
-            logger.info("client:{} subscribe topic:{} qos:{} success", clientId, mqttSubscription.getTopicFilter(), mqttSubscription.getQos());
+            logger.debug("client:{} subscribe topic:{} qos:{} success", clientId, mqttSubscription.getTopicFilter(), mqttSubscription.getQos());
 
         }
         return this;
