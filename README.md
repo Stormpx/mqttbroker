@@ -3,14 +3,6 @@ mqttbroker
 vertx写的mqtt broker
 
 
-运行
------------
-
-```
-git clone https://github.com/Stormpx/mqttbroker.git
-cd /jar
-java -jar mqttbroker-1.0-fat.jar -c /config1.yaml -c /config2.json
-```
 
 特性
 -----------
